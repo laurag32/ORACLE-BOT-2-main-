@@ -1,0 +1,20 @@
+[
+  {
+    "name": "USDC/USD Price Feed",
+    "contract_address": "0xYourConsumerContractAddress", 
+    "chainlink_feed_address": "0xAb5c49580294Aff77670F839ea425f5b78ab3Ae7",
+    "abi_file": "abi/price_feed.json",
+    "token": "USDC",
+    "min_update_interval": 300,
+    "last_update": 0
+  },
+  {
+    "name": "ETH/USD Price Feed",
+    "contract_address": "0xYourConsumerContractAddress",
+    "chainlink_feed_address": "0xF9680D99D6C9589e2a93a78A04A279e509205945",
+    "abi_file": "abi/price_feed.json",
+    "token": "ETH",
+    "min_update_interval": 300,
+    "last_update": 0
+  }
+]

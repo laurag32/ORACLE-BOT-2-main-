@@ -1,0 +1,54 @@
+[
+  {
+    "protocol": "Autofarm",
+    "name": "Auto-USDC-DAI",
+    "address": "0x08945D3dEA6f9c8A7A225FBA8C6F893cEe5AFfA2",
+    "pid": 0,
+    "rewardToken": "AUTO",
+    "min_idle_minutes": 20,
+    "last_harvest": 0
+  },
+  {
+    "protocol": "Autofarm",
+    "name": "Auto-DAI-USDT",
+    "address": "0x5D9Db2fEdA86F9F1A86360A3b1dD2dBeAe0B62b0",
+    "pid": 2,
+    "rewardToken": "AUTO",
+    "min_idle_minutes": 20,
+    "last_harvest": 0
+  },
+  {
+    "protocol": "Balancer",
+    "name": "Bal-USDC-DAI-USDT",
+    "address": "0x06Df3b2bbb68adc8B0e302443692037ED9f91b42",
+    "rewardToken": "BAL",
+    "min_idle_minutes": 20,
+    "last_harvest": 0
+  },
+  {
+    "protocol": "Balancer",
+    "name": "Bal-MAI-USDC",
+    "address": "0x6eDe7C3015fE3Ff40c4cC74b1A02a3a0C85A3A35",
+    "rewardToken": "BAL",
+    "min_idle_minutes": 20,
+    "last_harvest": 0
+  },
+  {
+    "protocol": "QuickSwap",
+    "name": "QS-USDC-WETH",
+    "address": "0xF2e8C2C9E2A10a3D6d2Cb13405Ee0f258EDeB58d",
+    "pid": 1,
+    "rewardToken": "QUICK",
+    "min_idle_minutes": 20,
+    "last_harvest": 0
+  },
+  {
+    "protocol": "QuickSwap",
+    "name": "QS-MATIC-USDC",
+    "address": "0xF58bF6d0D5c223a8eCc4E3f6fC87ABBa13B2c5E4",
+    "pid": 3,
+    "rewardToken": "QUICK",
+    "min_idle_minutes": 20,
+    "last_harvest": 0
+  }
+]

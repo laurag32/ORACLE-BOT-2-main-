@@ -1,63 +1,110 @@
-import json, time
-from utils.helpers import send_harvest_tx, send_oracle_update_tx, get_gas_price_gwei, load_env, get_web3
-from tracker.profit_tracker import ProfitTracker
-from tracker.scheduler import setup_schedules
+import os
+import json
+import time
+from dotenv import load_dotenv
+from utils.helpers import (
+    load_contract,
+    get_gas_price,
+    send_tx,
+    should_update,
+)
 from profit_logger import log_profit
-from summary_reporter import generate_summary
 from telegram_notifier import send_alert
+from rpc_manager import get_web3
 
-# Load environment and config
-env = load_env()
-config = json.load(open("config.json"))
-watchers = json.load(open("watchers.json"))
-oracle_jobs = json.load(open("oracle_jobs.json"))
+# Load env vars
+load_dotenv()
 
-# Initialize Web3
+BOT_ENABLED = os.getenv("BOT_ENABLED", "true").lower() == "true"
+
+ENABLE_AUTOFARM = os.getenv("ENABLE_AUTOFARM", "true").lower() == "true"
+ENABLE_BALANCER = os.getenv("ENABLE_BALANCER", "true").lower() == "true"
+ENABLE_QUICKSWAP = os.getenv("ENABLE_QUICKSWAP", "true").lower() == "true"
+ENABLE_ORACLE = os.getenv("ENABLE_ORACLE", "true").lower() == "true"
+
+PRIVATE_KEY = os.getenv("PRIVATE_KEY")
+PUBLIC_ADDRESS = os.getenv("PUBLIC_ADDRESS")
+
+# Safety params
+MAX_GAS_GWEI = 20
+MIN_PROFIT_USD = 1
+GAS_MULTIPLIER = 2
+FAIL_PAUSE_MINS = 10
+
+# Init web3
 w3 = get_web3()
-profit_tracker = ProfitTracker()
 
-def run_jobs():
-    # Harvest jobs
-    for watcher in watchers:
-        elapsed = time.time() - watcher.get("last_harvest", 0)
-        if elapsed < watcher["min_idle_minutes"] * 60:
-            continue
-        gas_price = get_gas_price_gwei(w3)
-        if gas_price > config["max_gas_gwei"]:
-            send_alert(f"⏸ {watcher['protocol']} | Gas {gas_price} gwei > {config['max_gas_gwei']}, skipped")
-            continue
-        try:
-            success, profit_usd, tx_hash = send_harvest_tx(w3, watcher, env, config, gas_price)
-            if success:
-                log_profit(watcher["protocol"], profit_usd, gas_price, tx_hash)
-                profit_tracker.add_profit(watcher["protocol"], profit_usd)
-                send_alert(f"✅ {watcher['protocol']} | ${profit_usd:.2f} | Tx: {tx_hash}")
-                watcher["last_harvest"] = time.time()
-            else:
-                send_alert(f"⚠️ {watcher['protocol']} | Vault {watcher['name']} skipped or failed")
-        except Exception as e:
-            send_alert(f"❌ {watcher['protocol']} | ERROR: {str(e)}")
+# Exit early if bot disabled
+if not BOT_ENABLED:
+    print("⏸ BOT_DISABLED in .env — exiting.")
+    send_alert("Bot disabled via .env toggle. No jobs running.")
+    exit(0)
 
-    # Oracle jobs
-    for job in oracle_jobs:
-        elapsed = time.time() - job.get("last_update", 0)
-        if elapsed < job.get("min_update_interval", 300):
-            continue
-        try:
-            tx_hash, price = send_oracle_update_tx(w3, job, env, config)
-            log_profit(job["name"], price, 0, tx_hash)
-            profit_tracker.add_profit(job["name"], price)
-            send_alert(f"📡 Oracle Update: {job['name']} = {price} | Tx: {tx_hash}")
-            job["last_update"] = time.time()
-        except Exception as e:
-            send_alert(f"❌ Oracle Update Failed: {job['name']} | {str(e)}")
+# Load watchers
+with open("watchers.json") as f:
+    watchers = json.load(f)
 
-def main():
-    send_alert("🚀 Oracle Bot started on Polygon (Harvest + Oracle jobs).")
-    setup_schedules(schedule_time=config["telegram"]["daily_summary_time"], profit_tracker=profit_tracker)
-    while True:
-        run_jobs()
+fail_count = 0
+
+print("🚀 Oracle Bot started...")
+
+while True:
+    try:
+        gas_price = get_gas_price(w3)
+        if gas_price > MAX_GAS_GWEI:
+            print(f"⛽ Gas too high ({gas_price} gwei). Skipping.")
+            time.sleep(60)
+            continue
+
+        for watcher in watchers:
+            protocol = watcher["protocol"]
+
+            # Respect toggles
+            if protocol == "autofarm" and not ENABLE_AUTOFARM:
+                continue
+            if protocol == "balancer" and not ENABLE_BALANCER:
+                continue
+            if protocol == "quickswap" and not ENABLE_QUICKSWAP:
+                continue
+            if protocol == "oracle" and not ENABLE_ORACLE:
+                continue
+
+            # Check if eligible to run
+            if not should_update(watcher):
+                continue
+
+            # Load contract
+            contract = load_contract(
+                w3, watcher["contract_address"], watcher["abi_file"]
+            )
+
+            try:
+                tx = send_tx(w3, contract, watcher, PRIVATE_KEY, PUBLIC_ADDRESS)
+                profit = log_profit(tx, protocol, gas_price)
+
+                if profit < MIN_PROFIT_USD or profit < gas_price * GAS_MULTIPLIER:
+                    print(f"⚠️ Skipping {protocol}: profit too low.")
+                    continue
+
+                send_alert(
+                    f"✅ {protocol} job executed. Profit: ${profit:.2f}, Gas: {gas_price} gwei"
+                )
+                fail_count = 0
+
+            except Exception as e:
+                print(f"❌ Error on {protocol}: {e}")
+                fail_count += 1
+                send_alert(f"❌ Error on {protocol}: {str(e)}")
+
+                if fail_count >= 2:
+                    print("⏸ Pausing after 2 fails...")
+                    send_alert("Bot paused for 10 mins after 2 fails.")
+                    time.sleep(FAIL_PAUSE_MINS * 60)
+                    fail_count = 0
+
         time.sleep(60)
 
-if __name__ == "__main__":
-    main()
+    except Exception as loop_err:
+        print(f"🔥 Main loop error: {loop_err}")
+        send_alert(f"🔥 Main loop error: {str(loop_err)}")
+        time.sleep(60)

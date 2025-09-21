@@ -1,50 +1,35 @@
 import json
-import os
+import time
 from web3 import Web3
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
-
-def load_contract(w3: Web3, contract_address: str, abi_path: str):
-    """
-    Load a contract instance from ABI and address.
-    """
-    with open(abi_path, "r") as abi_file:
-        abi = json.load(abi_file)
-    return w3.eth.contract(address=Web3.to_checksum_address(contract_address), abi=abi)
-
-
-def get_gas_price(w3: Web3) -> int:
-    """
-    Fetch current gas price from the connected network.
-    """
+# Load ABI and contract
+def load_contract(web3: Web3, contract_address: str, abi_file: str):
     try:
-        return w3.eth.gas_price
+        with open(abi_file, "r") as f:
+            abi = json.load(f)
+        return web3.eth.contract(
+            address=Web3.to_checksum_address(contract_address),
+            abi=abi
+        )
     except Exception as e:
-        print(f"[ERROR] Could not fetch gas price: {e}")
-        return int(30 * 1e9)  # fallback: 30 gwei
+        raise RuntimeError(f"Error loading contract {contract_address}: {e}")
 
-
-def send_tx(w3: Web3, tx, private_key: str) -> str:
-    """
-    Sign and send a raw transaction.
-    Returns transaction hash.
-    """
+# Get current gas price
+def get_gas_price(web3: Web3):
     try:
-        signed_tx = w3.eth.account.sign_transaction(tx, private_key=private_key)
-        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+        return web3.eth.gas_price
+    except Exception as e:
+        raise RuntimeError(f"Error fetching gas price: {e}")
+
+# Send transaction
+def send_tx(web3: Web3, tx, private_key: str):
+    try:
+        signed_tx = web3.eth.account.sign_transaction(tx, private_key=private_key)
+        tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
         return tx_hash.hex()
     except Exception as e:
-        print(f"[ERROR] Transaction failed: {e}")
-        return None
+        raise RuntimeError(f"Error sending transaction: {e}")
 
-
-def should_update(last_update_ts: int, interval: int) -> bool:
-    """
-    Decide if it’s time to run the update again.
-    last_update_ts: timestamp of last run (int)
-    interval: time interval in seconds (int)
-    """
-    import time
-    return (time.time() - last_update_ts) >= interval
+# Decide if Oracle/feed should update
+def should_update(last_update: float, min_update_interval: int) -> bool:
+    return time.time() - last_update >= min_update_interval

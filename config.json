@@ -1,11 +1,11 @@
 {
-  "max_gas_gwei": 20,
+  "max_gas_gwei": 55,
   "min_reward_usd": 1,
-  "min_profit_ratio": 2,
+  "min_profit_ratio": 1.5,
   "fail_pause_minutes": 10,
   "auto_profiler": {
-    "low_gas_threshold": 5,
-    "high_gas_threshold": 20,
+    "low_gas_threshold": 20,
+    "high_gas_threshold": 55,
     "low_gas_min_reward": 0.5,
     "high_gas_min_reward": 2.0
   },

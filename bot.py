@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import threading
 from dotenv import load_dotenv
 from utils.helpers import (
     load_contract,
@@ -11,8 +12,11 @@ from utils.helpers import (
 from profit_logger import log_profit
 from telegram_notifier import send_alert
 from rpc_manager import get_web3
+from flask import Flask
 
+# -------------------------
 # Load env vars
+# -------------------------
 load_dotenv()
 
 BOT_ENABLED = os.getenv("BOT_ENABLED", "true").lower() == "true"
@@ -46,65 +50,90 @@ with open("watchers.json") as f:
 
 fail_count = 0
 
-print("🚀 Oracle Bot started...")
 
-while True:
-    try:
-        gas_price = get_gas_price(w3)
-        if gas_price > MAX_GAS_GWEI:
-            print(f"⛽ Gas too high ({gas_price} gwei). Skipping.")
-            time.sleep(60)
-            continue
+# -------------------------
+# Core bot loop (unchanged)
+# -------------------------
+def run_bot():
+    global fail_count
+    print("🚀 Oracle Bot started...")
 
-        for watcher in watchers:
-            protocol = watcher["protocol"]
-
-            # Respect toggles
-            if protocol == "autofarm" and not ENABLE_AUTOFARM:
-                continue
-            if protocol == "balancer" and not ENABLE_BALANCER:
-                continue
-            if protocol == "quickswap" and not ENABLE_QUICKSWAP:
-                continue
-            if protocol == "oracle" and not ENABLE_ORACLE:
+    while True:
+        try:
+            gas_price = get_gas_price(w3)
+            if gas_price > MAX_GAS_GWEI:
+                print(f"⛽ Gas too high ({gas_price} gwei). Skipping.")
+                time.sleep(60)
                 continue
 
-            # Check if eligible to run
-            if not should_update(watcher):
-                continue
+            for watcher in watchers:
+                protocol = watcher["protocol"]
 
-            # Load contract
-            contract = load_contract(
-                w3, watcher["contract_address"], watcher["abi_file"]
-            )
-
-            try:
-                tx = send_tx(w3, contract, watcher, PRIVATE_KEY, PUBLIC_ADDRESS)
-                profit = log_profit(tx, protocol, gas_price)
-
-                if profit < MIN_PROFIT_USD or profit < gas_price * GAS_MULTIPLIER:
-                    print(f"⚠️ Skipping {protocol}: profit too low.")
+                # Respect toggles
+                if protocol == "autofarm" and not ENABLE_AUTOFARM:
+                    continue
+                if protocol == "balancer" and not ENABLE_BALANCER:
+                    continue
+                if protocol == "quickswap" and not ENABLE_QUICKSWAP:
+                    continue
+                if protocol == "oracle" and not ENABLE_ORACLE:
                     continue
 
-                send_alert(
-                    f"✅ {protocol} job executed. Profit: ${profit:.2f}, Gas: {gas_price} gwei"
+                # Check if eligible to run
+                if not should_update(watcher):
+                    continue
+
+                # Load contract
+                contract = load_contract(
+                    w3, watcher["contract_address"], watcher["abi_file"]
                 )
-                fail_count = 0
 
-            except Exception as e:
-                print(f"❌ Error on {protocol}: {e}")
-                fail_count += 1
-                send_alert(f"❌ Error on {protocol}: {str(e)}")
+                try:
+                    tx = send_tx(w3, contract, watcher, PRIVATE_KEY, PUBLIC_ADDRESS)
+                    profit = log_profit(tx, protocol, gas_price)
 
-                if fail_count >= 2:
-                    print("⏸ Pausing after 2 fails...")
-                    send_alert("Bot paused for 10 mins after 2 fails.")
-                    time.sleep(FAIL_PAUSE_MINS * 60)
+                    if profit < MIN_PROFIT_USD or profit < gas_price * GAS_MULTIPLIER:
+                        print(f"⚠️ Skipping {protocol}: profit too low.")
+                        continue
+
+                    send_alert(
+                        f"✅ {protocol} job executed. Profit: ${profit:.2f}, Gas: {gas_price} gwei"
+                    )
                     fail_count = 0
 
-        time.sleep(60)
+                except Exception as e:
+                    print(f"❌ Error on {protocol}: {e}")
+                    fail_count += 1
+                    send_alert(f"❌ Error on {protocol}: {str(e)}")
 
-    except Exception as loop_err:
-        print(f"🔥 Main loop error: {loop_err}")
-        send_alert(f"🔥 Main loop error: {str(loop_err)}")
-        time.sleep(60)
+                    if fail_count >= 2:
+                        print("⏸ Pausing after 2 fails...")
+                        send_alert("Bot paused for 10 mins after 2 fails.")
+                        time.sleep(FAIL_PAUSE_MINS * 60)
+                        fail_count = 0
+
+            time.sleep(60)
+
+        except Exception as loop_err:
+            print(f"🔥 Main loop error: {loop_err}")
+            send_alert(f"🔥 Main loop error: {str(loop_err)}")
+            time.sleep(60)
+
+
+# -------------------------
+# Flask health server
+# -------------------------
+app = Flask(__name__)
+
+@app.route("/")
+def index():
+    return "✅ Oracle Bot is running!"
+
+if __name__ == "__main__":
+    # Run the bot in a background thread
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+
+    # Start Flask server for Render port binding
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)

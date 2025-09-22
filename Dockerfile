@@ -30,5 +30,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy project files
 COPY . .
 
-# Default command (runs bot.py)
+# Render will provide PORT env var
+EXPOSE 10000
+
+# Default command (runs bot.py with Flask + background thread)
 CMD ["python", "bot.py"]

@@ -30,7 +30,7 @@ PRIVATE_KEY = os.getenv("PRIVATE_KEY")
 PUBLIC_ADDRESS = os.getenv("PUBLIC_ADDRESS")
 
 # Safety params
-MAX_GAS_GWEI = 20
+MAX_GAS_GWEI = 40
 MIN_PROFIT_USD = 1
 GAS_MULTIPLIER = 2
 FAIL_PAUSE_MINS = 10
@@ -50,7 +50,6 @@ with open("watchers.json") as f:
 
 fail_count = 0
 
-
 # -------------------------
 # Core bot loop
 # -------------------------
@@ -67,26 +66,21 @@ def run_bot():
                 continue
 
             for watcher in watchers:
-                protocol = watcher["protocol"]
+                protocol = watcher["protocol"].lower()
                 name = watcher.get("name", "Unnamed")
 
                 # Respect toggles
                 if protocol == "autofarm" and not ENABLE_AUTOFARM:
-                    print(f"⏭ Skipping {name} (autofarm disabled)")
                     continue
                 if protocol == "balancer" and not ENABLE_BALANCER:
-                    print(f"⏭ Skipping {name} (balancer disabled)")
                     continue
                 if protocol == "quickswap" and not ENABLE_QUICKSWAP:
-                    print(f"⏭ Skipping {name} (quickswap disabled)")
                     continue
                 if protocol == "oracle" and not ENABLE_ORACLE:
-                    print(f"⏭ Skipping {name} (oracle disabled)")
                     continue
 
                 # Check if eligible to run
                 if not should_update(watcher):
-                    print(f"⏭ Skipping {name} (not time yet)")
                     continue
 
                 # Load contract
@@ -115,7 +109,7 @@ def run_bot():
 
                     if fail_count >= 2:
                         print("⏸ Pausing after 2 fails...")
-                        send_alert("Bot paused for 10 mins after 2 fails.")
+                        send_alert(f"Bot paused for {FAIL_PAUSE_MINS} mins after 2 fails.")
                         time.sleep(FAIL_PAUSE_MINS * 60)
                         fail_count = 0
 

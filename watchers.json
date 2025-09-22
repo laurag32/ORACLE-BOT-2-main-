@@ -7,7 +7,7 @@
     "rewardToken": "AUTO",
     "min_idle_minutes": 20,
     "last_harvest": 0,
-    "abi_file": "autofarm.json"
+    "abi_file": "abis/autofarm.json"
   },
   {
     "protocol": "autofarm",
@@ -17,7 +17,7 @@
     "rewardToken": "AUTO",
     "min_idle_minutes": 20,
     "last_harvest": 0,
-    "abi_file": "autofarm.json"
+    "abi_file": "abis/autofarm.json"
   },
   {
     "protocol": "balancer",
@@ -26,7 +26,7 @@
     "rewardToken": "BAL",
     "min_idle_minutes": 20,
     "last_harvest": 0,
-    "abi_file": "balancer.json"
+    "abi_file": "abis/balancer.json"
   },
   {
     "protocol": "balancer",
@@ -35,7 +35,7 @@
     "rewardToken": "BAL",
     "min_idle_minutes": 20,
     "last_harvest": 0,
-    "abi_file": "balancer.json"
+    "abi_file": "abis/balancer.json"
   },
   {
     "protocol": "quickswap",
@@ -45,7 +45,7 @@
     "rewardToken": "QUICK",
     "min_idle_minutes": 20,
     "last_harvest": 0,
-    "abi_file": "quickswap.json"
+    "abi_file": "abis/quickswap.json"
   },
   {
     "protocol": "quickswap",
@@ -55,6 +55,6 @@
     "rewardToken": "QUICK",
     "min_idle_minutes": 20,
     "last_harvest": 0,
-    "abi_file": "quickswap.json"
+    "abi_file": "abis/quickswap.json"
   }
 ]

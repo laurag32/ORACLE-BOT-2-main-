@@ -30,7 +30,7 @@ PRIVATE_KEY = os.getenv("PRIVATE_KEY")
 PUBLIC_ADDRESS = os.getenv("PUBLIC_ADDRESS")
 
 # Safety params
-MAX_GAS_GWEI = 40
+MAX_GAS_GWEI = 40          # Updated from 20 → 40 gwei
 MIN_PROFIT_USD = 1
 GAS_MULTIPLIER = 2
 FAIL_PAUSE_MINS = 10
@@ -66,7 +66,7 @@ def run_bot():
                 continue
 
             for watcher in watchers:
-                protocol = watcher["protocol"].lower()
+                protocol = watcher["protocol"]
                 name = watcher.get("name", "Unnamed")
 
                 # Respect toggles
@@ -89,7 +89,6 @@ def run_bot():
                 )
 
                 try:
-                    print(f"✅ Ready to harvest {name} on {protocol}...")
                     tx = send_tx(w3, contract, watcher, PRIVATE_KEY, PUBLIC_ADDRESS)
                     profit = log_profit(tx, protocol, gas_price)
 
@@ -109,7 +108,7 @@ def run_bot():
 
                     if fail_count >= 2:
                         print("⏸ Pausing after 2 fails...")
-                        send_alert(f"Bot paused for {FAIL_PAUSE_MINS} mins after 2 fails.")
+                        send_alert("Bot paused for 10 mins after 2 fails.")
                         time.sleep(FAIL_PAUSE_MINS * 60)
                         fail_count = 0
 

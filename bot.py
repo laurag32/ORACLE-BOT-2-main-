@@ -68,19 +68,25 @@ def run_bot():
 
             for watcher in watchers:
                 protocol = watcher["protocol"]
+                name = watcher.get("name", "Unnamed")
 
                 # Respect toggles
                 if protocol == "autofarm" and not ENABLE_AUTOFARM:
+                    print(f"⏭ Skipping {name} (autofarm disabled)")
                     continue
                 if protocol == "balancer" and not ENABLE_BALANCER:
+                    print(f"⏭ Skipping {name} (balancer disabled)")
                     continue
                 if protocol == "quickswap" and not ENABLE_QUICKSWAP:
+                    print(f"⏭ Skipping {name} (quickswap disabled)")
                     continue
                 if protocol == "oracle" and not ENABLE_ORACLE:
+                    print(f"⏭ Skipping {name} (oracle disabled)")
                     continue
 
                 # Check if eligible to run
                 if not should_update(watcher):
+                    print(f"⏭ Skipping {name} (not time yet)")
                     continue
 
                 # Load contract
@@ -89,6 +95,7 @@ def run_bot():
                 )
 
                 try:
+                    print(f"✅ Ready to harvest {name} on {protocol}...")
                     tx = send_tx(w3, contract, watcher, PRIVATE_KEY, PUBLIC_ADDRESS)
                     profit = log_profit(tx, protocol, gas_price)
 

@@ -52,7 +52,7 @@ fail_count = 0
 
 
 # -------------------------
-# Core bot loop (unchanged)
+# Core bot loop
 # -------------------------
 def run_bot():
     global fail_count
@@ -128,6 +128,10 @@ app = Flask(__name__)
 @app.route("/")
 def index():
     return "✅ Oracle Bot is running!"
+
+@app.route("/ping")
+def ping():
+    return "pong 🏓"
 
 if __name__ == "__main__":
     # Run the bot in a background thread

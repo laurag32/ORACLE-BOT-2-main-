@@ -8,6 +8,7 @@ from utils.helpers import (
     get_gas_price,
     send_tx,
     should_update,
+    is_gas_safe
 )
 from profit_logger import log_profit
 from telegram_notifier import send_alert
@@ -30,7 +31,7 @@ PRIVATE_KEY = os.getenv("PRIVATE_KEY")
 PUBLIC_ADDRESS = os.getenv("PUBLIC_ADDRESS")
 
 # Safety params
-MAX_GAS_GWEI = 40          # Updated from 20 → 40 gwei
+MAX_GAS_GWEI = 40          # Updated to 40 gwei
 MIN_PROFIT_USD = 1
 GAS_MULTIPLIER = 2
 FAIL_PAUSE_MINS = 10
@@ -60,7 +61,7 @@ def run_bot():
     while True:
         try:
             gas_price = get_gas_price(w3)
-            if gas_price > MAX_GAS_GWEI:
+            if not is_gas_safe(gas_price, MAX_GAS_GWEI):
                 print(f"⛽ Gas too high ({gas_price} gwei). Skipping.")
                 time.sleep(60)
                 continue
@@ -89,6 +90,7 @@ def run_bot():
                 )
 
                 try:
+                    print(f"✅ Ready to harvest {name} on {protocol}...")
                     tx = send_tx(w3, contract, watcher, PRIVATE_KEY, PUBLIC_ADDRESS)
                     profit = log_profit(tx, protocol, gas_price)
 
@@ -99,6 +101,8 @@ def run_bot():
                     send_alert(
                         f"✅ {protocol} job executed. Profit: ${profit:.2f}, Gas: {gas_price} gwei"
                     )
+                    # Update last_harvest timestamp
+                    watcher["last_harvest"] = time.time()
                     fail_count = 0
 
                 except Exception as e:

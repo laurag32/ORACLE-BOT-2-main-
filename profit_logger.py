@@ -5,9 +5,10 @@ from price_fetcher import get_price
 
 LOG_FILE = "logs/profit_log.csv"
 
-def log_profit(tx_hash, watcher, gas_gwei):
+def log_profit(tx_hash, watcher, gas_gwei, contract=None):
     """
-    Calculate profit from actual watcher rewardAmount and rewardToken.
+    Calculate profit from actual rewardToken and rewardAmount.
+    If contract is provided, fetch real reward amount from blockchain.
     Logs into CSV and returns profit in USD.
     """
     try:
@@ -15,6 +16,23 @@ def log_profit(tx_hash, watcher, gas_gwei):
 
         reward_token = watcher.get("rewardToken", "MATIC")
         reward_amount = watcher.get("rewardAmount", 0.0)
+
+        # --- Fetch actual reward from contract if available ---
+        if contract:
+            try:
+                # Detect function to get pending rewards
+                # Common names: pendingReward, pendingAUTO, earned, etc.
+                if watcher["protocol"] == "autofarm" and hasattr(contract.functions, "pendingReward"):
+                    pid = watcher.get("pid", 0)
+                    reward_amount = contract.functions.pendingReward(pid, watcher.get("publicAddress")).call()
+                elif watcher["protocol"] == "balancer" and hasattr(contract.functions, "earned"):
+                    reward_amount = contract.functions.earned(watcher.get("publicAddress")).call()
+                elif watcher["protocol"] == "quickswap" and hasattr(contract.functions, "pendingReward"):
+                    pid = watcher.get("pid", 0)
+                    reward_amount = contract.functions.pendingReward(pid, watcher.get("publicAddress")).call()
+            except Exception as e:
+                print(f"[ProfitLogger] Failed to fetch live reward: {e}")
+                # fallback to watcher-defined rewardAmount
 
         # --- Prices ---
         token_price = get_price(reward_token)

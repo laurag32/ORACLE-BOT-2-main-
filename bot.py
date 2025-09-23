@@ -33,7 +33,7 @@ PUBLIC_ADDRESS = os.getenv("PUBLIC_ADDRESS")
 # -------------------------
 # Safety params
 # -------------------------
-MAX_GAS_GWEI = 40          # normal execution limit
+MAX_GAS_GWEI = 40            # normal execution limit
 ABSOLUTE_MAX_GAS_GWEI = 600  # emergency cutoff
 MIN_PROFIT_USD = 1
 GAS_MULTIPLIER = 2
@@ -105,10 +105,17 @@ def run_bot():
                 try:
                     print(f"✅ Ready to harvest {name} on {protocol}...")
                     tx = send_tx(w3, contract, watcher, PRIVATE_KEY, PUBLIC_ADDRESS)
-                    profit = log_profit(tx, protocol, gas_price)
+
+                    profit = log_profit(
+                        tx,
+                        protocol,
+                        gas_price,
+                        reward_token=watcher.get("rewardToken", "MATIC"),
+                        reward_amount=watcher.get("rewardAmount", 0.0)
+                    )
 
                     if profit < MIN_PROFIT_USD or profit < gas_price * GAS_MULTIPLIER:
-                        print(f"⚠️ Skipping {protocol}: profit too low.")
+                        print(f"⚠️ Skipping {protocol}: profit too low (${profit:.2f}).")
                         continue
 
                     send_alert(

@@ -66,13 +66,13 @@ def run_bot():
         try:
             gas_price = get_gas_price(w3)
 
-            # Gas safety check
+            # Gas safety check: allow <= MAX_GAS_GWEI, error if > ABSOLUTE_MAX
             try:
                 is_gas_safe(gas_price, MAX_GAS_GWEI, ABSOLUTE_MAX_GAS_GWEI)
             except ValueError as e:
                 print(str(e))
                 send_alert(str(e))
-                time.sleep(600)
+                time.sleep(600)  # pause 10 min before retry
                 continue
 
             for watcher in watchers:
@@ -102,7 +102,7 @@ def run_bot():
                     print(f"✅ Ready to harvest {name} on {protocol}...")
                     tx_hash = send_tx(w3, contract, watcher, PRIVATE_KEY, PUBLIC_ADDRESS)
 
-                    # log profit using watcher info automatically
+                    # log profit directly reading from watcher
                     profit = log_profit(tx_hash, watcher, gas_price)
 
                     if profit < MIN_PROFIT_USD or profit < gas_price * GAS_MULTIPLIER:
@@ -153,6 +153,7 @@ def ping():
 
 if __name__ == "__main__":
     # Run the bot in a background thread
+    import threading
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
 

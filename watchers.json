@@ -5,6 +5,7 @@
     "contract_address": "0x08945D3dEA6f9c8A7A225FBA8C6F893cEe5AFfA2",
     "pid": 0,
     "rewardToken": "AUTO",
+    "rewardAmount": 0.05,
     "min_idle_minutes": 20,
     "last_harvest": 0,
     "abi_file": "abis/autofarm.json"
@@ -15,6 +16,7 @@
     "contract_address": "0x5D9Db2fEdA86F9F1A86360A3b1dD2dBeAe0B62b0",
     "pid": 2,
     "rewardToken": "AUTO",
+    "rewardAmount": 0.07,
     "min_idle_minutes": 20,
     "last_harvest": 0,
     "abi_file": "abis/autofarm.json"
@@ -24,6 +26,7 @@
     "name": "Bal-USDC-DAI-USDT",
     "contract_address": "0x06Df3b2bbb68adc8B0e302443692037ED9f91b42",
     "rewardToken": "BAL",
+    "rewardAmount": 0.12,
     "min_idle_minutes": 20,
     "last_harvest": 0,
     "abi_file": "abis/balancer.json"
@@ -33,6 +36,7 @@
     "name": "Bal-MAI-USDC",
     "contract_address": "0x6eDe7C3015fE3Ff40c4cC74b1A02a3a0C85A3A35",
     "rewardToken": "BAL",
+    "rewardAmount": 0.15,
     "min_idle_minutes": 20,
     "last_harvest": 0,
     "abi_file": "abis/balancer.json"
@@ -43,6 +47,7 @@
     "contract_address": "0xF2e8C2C9E2A10a3D6d2Cb13405Ee0f258EDeB58d",
     "pid": 1,
     "rewardToken": "QUICK",
+    "rewardAmount": 0.08,
     "min_idle_minutes": 20,
     "last_harvest": 0,
     "abi_file": "abis/quickswap.json"
@@ -53,6 +58,7 @@
     "contract_address": "0xF58bF6d0D5c223a8eCc4E3f6fC87ABBa13B2c5E4",
     "pid": 3,
     "rewardToken": "QUICK",
+    "rewardAmount": 0.10,
     "min_idle_minutes": 20,
     "last_harvest": 0,
     "abi_file": "abis/quickswap.json"

@@ -8,8 +8,7 @@ from utils.helpers import (
     get_gas_price,
     send_tx,
     should_update,
-    is_gas_safe,
-    get_pending_rewards  # 👈 new import
+    is_gas_safe
 )
 from profit_logger import log_profit
 from telegram_notifier import send_alert
@@ -22,7 +21,6 @@ from flask import Flask
 load_dotenv()
 
 BOT_ENABLED = os.getenv("BOT_ENABLED", "true").lower() == "true"
-
 ENABLE_AUTOFARM = os.getenv("ENABLE_AUTOFARM", "true").lower() == "true"
 ENABLE_BALANCER = os.getenv("ENABLE_BALANCER", "true").lower() == "true"
 ENABLE_QUICKSWAP = os.getenv("ENABLE_QUICKSWAP", "true").lower() == "true"
@@ -34,9 +32,10 @@ PUBLIC_ADDRESS = os.getenv("PUBLIC_ADDRESS")
 # -------------------------
 # Safety params
 # -------------------------
-MAX_GAS_GWEI = 600            # ✅ harvest at anything ≤600
-ABSOLUTE_MAX_GAS_GWEI = 600   # 🔒 hard stop if >600
+MAX_GAS_GWEI = 600          # harvest allowed up to 600 gwei
+ABSOLUTE_MAX_GAS_GWEI = 600 # emergency cutoff
 MIN_PROFIT_USD = 1
+GAS_MULTIPLIER = 2
 FAIL_PAUSE_MINS = 10
 
 # -------------------------
@@ -61,18 +60,15 @@ fail_count = 0
 # -------------------------
 def run_bot():
     global fail_count
-    print("🚀 Oracle Bot started in HARVEST mode...")
+    print("🚀 Oracle Bot started...")
 
     while True:
         try:
             gas_price = get_gas_price(w3)
 
-            # Gas safety check
+            # Gas safety check: allow <= MAX_GAS_GWEI, error if > ABSOLUTE_MAX
             try:
-                if not is_gas_safe(gas_price, MAX_GAS_GWEI, ABSOLUTE_MAX_GAS_GWEI):
-                    print(f"⛽ Gas too high ({gas_price} gwei). Skipping this round.")
-                    time.sleep(60)
-                    continue
+                is_gas_safe(gas_price, MAX_GAS_GWEI, ABSOLUTE_MAX_GAS_GWEI)
             except ValueError as e:
                 print(str(e))
                 send_alert(str(e))
@@ -103,38 +99,25 @@ def run_bot():
                 )
 
                 try:
-                    print(f"✅ Checking rewards for {name} on {protocol}...")
-                    reward_token = watcher.get("rewardToken", "MATIC")
+                    print(f"✅ Ready to harvest {name} on {protocol}...")
+                    tx_hash = send_tx(w3, contract, watcher, PRIVATE_KEY, PUBLIC_ADDRESS)
 
-                    # 🔥 fetch actual pending rewards from contract
-                    reward_amount = get_pending_rewards(contract, watcher, w3, PUBLIC_ADDRESS)
+                    # log profit directly reading from watcher
+                    profit = log_profit(tx_hash, watcher, gas_price)
 
-                    if reward_amount <= 0:
-                        print(f"⚠️ No rewards to harvest for {protocol}.")
-                        continue
-
-                    print(f"💰 {protocol} pending rewards: {reward_amount} {reward_token}")
-
-                    # build + send harvest tx
-                    tx = send_tx(w3, contract, watcher, PRIVATE_KEY, PUBLIC_ADDRESS)
-
-                    # compute profit using *real reward*
-                    profit = log_profit(
-                        tx,
-                        protocol,
-                        gas_price,
-                        reward_token=reward_token,
-                        reward_amount=reward_amount
-                    )
-
-                    if profit < MIN_PROFIT_USD:
+                    if profit < MIN_PROFIT_USD or profit < gas_price * GAS_MULTIPLIER:
                         print(f"⚠️ Skipping {protocol}: profit too low (${profit:.2f}).")
                         continue
 
                     send_alert(
-                        f"✅ {protocol} harvested. Profit: ${profit:.2f}, Gas: {gas_price} gwei"
+                        f"✅ {protocol} job executed. Profit: ${profit:.2f}, Gas: {gas_price} gwei"
                     )
+
+                    # update last_harvest in memory and persist
                     watcher["last_harvest"] = time.time()
+                    with open("watchers.json", "w") as f:
+                        json.dump(watchers, f, indent=2)
+
                     fail_count = 0
 
                 except Exception as e:
@@ -155,7 +138,6 @@ def run_bot():
             send_alert(f"🔥 Main loop error: {str(loop_err)}")
             time.sleep(60)
 
-
 # -------------------------
 # Flask health server
 # -------------------------
@@ -163,7 +145,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def index():
-    return "✅ Oracle Bot (HARVEST MODE) is running!"
+    return "✅ Oracle Bot is running!"
 
 @app.route("/ping")
 def ping():
@@ -171,6 +153,7 @@ def ping():
 
 if __name__ == "__main__":
     # Run the bot in a background thread
+    import threading
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
 

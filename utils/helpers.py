@@ -21,16 +21,19 @@ def get_gas_price(web3: Web3):
     """
     Returns current gas price in gwei.
     """
-    return web3.eth.gas_price // 10**9  # convert wei → gwei
+    return web3.eth.gas_price // 10**9  # wei → gwei
 
 
 # -------------------------
 # Check if gas is safe to execute a transaction
 # -------------------------
-def is_gas_safe(current_gas_gwei, max_gas_gwei=40):
+def is_gas_safe(current_gas_gwei, max_gas_gwei=40, absolute_max_gwei=600):
     """
-    Returns True if current gas is less than or equal to max_gas_gwei.
+    Returns True if current gas is <= max_gas_gwei.
+    Raises ValueError if gas > absolute_max_gwei.
     """
+    if current_gas_gwei > absolute_max_gwei:
+        raise ValueError(f"🔥 Gas too high! ({current_gas_gwei} gwei) exceeds absolute max ({absolute_max_gwei})")
     return current_gas_gwei <= max_gas_gwei
 
 
@@ -43,9 +46,8 @@ def send_tx(web3: Web3, contract, watcher, private_key, public_address):
     """
     # Determine method based on protocol
     method_name = "harvest" if watcher["protocol"] != "balancer" else "claimRewards"
-
     func = getattr(contract.functions, method_name)
-    
+
     # Build transaction
     tx = func().build_transaction({
         "from": public_address,
@@ -56,7 +58,6 @@ def send_tx(web3: Web3, contract, watcher, private_key, public_address):
     # Sign and send
     signed_tx = web3.eth.account.sign_transaction(tx, private_key)
     tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
-    
     return tx_hash.hex()
 
 

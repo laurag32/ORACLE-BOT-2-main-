@@ -8,7 +8,8 @@ from utils.helpers import (
     get_gas_price,
     send_tx,
     should_update,
-    is_gas_safe
+    is_gas_safe,
+    get_pending_rewards  # 👈 new import
 )
 from profit_logger import log_profit
 from telegram_notifier import send_alert
@@ -33,10 +34,9 @@ PUBLIC_ADDRESS = os.getenv("PUBLIC_ADDRESS")
 # -------------------------
 # Safety params
 # -------------------------
-MAX_GAS_GWEI = 40            # normal execution limit
-ABSOLUTE_MAX_GAS_GWEI = 600  # emergency cutoff
+MAX_GAS_GWEI = 600            # ✅ harvest at anything ≤600
+ABSOLUTE_MAX_GAS_GWEI = 600   # 🔒 hard stop if >600
 MIN_PROFIT_USD = 1
-GAS_MULTIPLIER = 2
 FAIL_PAUSE_MINS = 10
 
 # -------------------------
@@ -61,7 +61,7 @@ fail_count = 0
 # -------------------------
 def run_bot():
     global fail_count
-    print("🚀 Oracle Bot started...")
+    print("🚀 Oracle Bot started in HARVEST mode...")
 
     while True:
         try:
@@ -103,23 +103,36 @@ def run_bot():
                 )
 
                 try:
-                    print(f"✅ Ready to harvest {name} on {protocol}...")
+                    print(f"✅ Checking rewards for {name} on {protocol}...")
+                    reward_token = watcher.get("rewardToken", "MATIC")
+
+                    # 🔥 fetch actual pending rewards from contract
+                    reward_amount = get_pending_rewards(contract, watcher, w3, PUBLIC_ADDRESS)
+
+                    if reward_amount <= 0:
+                        print(f"⚠️ No rewards to harvest for {protocol}.")
+                        continue
+
+                    print(f"💰 {protocol} pending rewards: {reward_amount} {reward_token}")
+
+                    # build + send harvest tx
                     tx = send_tx(w3, contract, watcher, PRIVATE_KEY, PUBLIC_ADDRESS)
 
+                    # compute profit using *real reward*
                     profit = log_profit(
                         tx,
                         protocol,
                         gas_price,
-                        reward_token=watcher.get("rewardToken", "MATIC"),
-                        reward_amount=watcher.get("rewardAmount", 0.0)
+                        reward_token=reward_token,
+                        reward_amount=reward_amount
                     )
 
-                    if profit < MIN_PROFIT_USD or profit < gas_price * GAS_MULTIPLIER:
+                    if profit < MIN_PROFIT_USD:
                         print(f"⚠️ Skipping {protocol}: profit too low (${profit:.2f}).")
                         continue
 
                     send_alert(
-                        f"✅ {protocol} job executed. Profit: ${profit:.2f}, Gas: {gas_price} gwei"
+                        f"✅ {protocol} harvested. Profit: ${profit:.2f}, Gas: {gas_price} gwei"
                     )
                     watcher["last_harvest"] = time.time()
                     fail_count = 0
@@ -150,7 +163,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def index():
-    return "✅ Oracle Bot is running!"
+    return "✅ Oracle Bot (HARVEST MODE) is running!"
 
 @app.route("/ping")
 def ping():

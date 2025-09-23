@@ -30,16 +30,21 @@ ENABLE_ORACLE = os.getenv("ENABLE_ORACLE", "true").lower() == "true"
 PRIVATE_KEY = os.getenv("PRIVATE_KEY")
 PUBLIC_ADDRESS = os.getenv("PUBLIC_ADDRESS")
 
+# -------------------------
 # Safety params
-MAX_GAS_GWEI = 40          # Updated to 40 gwei
+# -------------------------
+MAX_GAS_GWEI = 40          # normal execution limit
+ABSOLUTE_MAX_GAS_GWEI = 600  # emergency cutoff
 MIN_PROFIT_USD = 1
 GAS_MULTIPLIER = 2
 FAIL_PAUSE_MINS = 10
 
+# -------------------------
 # Init web3
+# -------------------------
 w3 = get_web3()
 
-# Exit early if bot disabled
+# Exit if bot disabled
 if not BOT_ENABLED:
     print("⏸ BOT_DISABLED in .env — exiting.")
     send_alert("Bot disabled via .env toggle. No jobs running.")
@@ -61,9 +66,17 @@ def run_bot():
     while True:
         try:
             gas_price = get_gas_price(w3)
-            if not is_gas_safe(gas_price, MAX_GAS_GWEI):
-                print(f"⛽ Gas too high ({gas_price} gwei). Skipping.")
-                time.sleep(60)
+
+            # Gas safety check
+            try:
+                if not is_gas_safe(gas_price, MAX_GAS_GWEI, ABSOLUTE_MAX_GAS_GWEI):
+                    print(f"⛽ Gas too high ({gas_price} gwei). Skipping this round.")
+                    time.sleep(60)
+                    continue
+            except ValueError as e:
+                print(str(e))
+                send_alert(str(e))
+                time.sleep(600)  # pause 10 min before retry
                 continue
 
             for watcher in watchers:
@@ -101,7 +114,6 @@ def run_bot():
                     send_alert(
                         f"✅ {protocol} job executed. Profit: ${profit:.2f}, Gas: {gas_price} gwei"
                     )
-                    # Update last_harvest timestamp
                     watcher["last_harvest"] = time.time()
                     fail_count = 0
 
@@ -142,6 +154,6 @@ if __name__ == "__main__":
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
 
-    # Start Flask server for Render port binding
+    # Start Flask server
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)

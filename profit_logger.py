@@ -1,36 +1,28 @@
-def log_profit(tx_hash, watcher, gas_gwei, public_address, contract):
-    """
-    Reads real-time earned rewards from contracts and logs USD profit.
-    Autofarm: pendingReward(pid, address)
-    Balancer: earned()
-    Quickswap: pendingReward or pendingTokens depending on farm
-    """
+def log_profit(tx_hash, watcher, gas_price, public_address, contract):
     try:
-        method_candidates = ["pendingReward", "earned", "pendingTokens"]
-        func = None
-        for name in method_candidates:
-            if hasattr(contract.functions, name):
-                func = getattr(contract.functions, name)
-                break
-        if func is None:
-            print(f"[ProfitLogger] Could not find reward function for {watcher['protocol']}")
-            return 0.0
+        protocol = watcher["protocol"]
+        earned = 0
 
-        # Build call
-        sig = func._function_signature() if hasattr(func, "_function_signature") else None
-        if watcher.get("pid") and watcher.get("address"):
-            args = [watcher["pid"], public_address]
-        elif watcher.get("pid"):
-            args = [watcher["pid"]]
-        else:
-            args = []
+        if protocol == "autofarm":
+            # Autofarm: call pendingReward(pid, address) or fallback
+            func_name = "pendingReward"
+            func = getattr(contract.functions, func_name, None)
+            if func:
+                try:
+                    earned = func(watcher.get("pid", 0), public_address).call()
+                except:
+                    earned = func().call()
+        elif protocol == "quickswap":
+            func_name = "pendingReward"
+            func = getattr(contract.functions, func_name, None)
+            if func:
+                try:
+                    earned = func(watcher.get("pid", 0), public_address).call()
+                except:
+                    earned = func().call()
 
-        earned_amount = func(*args).call()
-        # convert to USD via watcher.price if available
-        usd_value = earned_amount * watcher.get("price", 0)
-        print(f"[ProfitLogger] Earned: {earned_amount}, USD: {usd_value:.2f}")
-        return usd_value
-
+        profit_usd = earned / 1e18  # assuming token decimals 18
+        return profit_usd
     except Exception as e:
         print(f"[ProfitLogger] Error: {e}")
         return 0.0

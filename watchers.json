@@ -20,24 +20,6 @@
     "abi_file": "abis/autofarm.json"
   },
   {
-    "protocol": "balancer",
-    "name": "Bal-USDC-DAI-USDT",
-    "contract_address": "0x06Df3b2bbb68adc8B0e302443692037ED9f91b42",
-    "rewardToken": "BAL",
-    "min_idle_minutes": 20,
-    "last_harvest": 0,
-    "abi_file": "abis/balancer.json"
-  },
-  {
-    "protocol": "balancer",
-    "name": "Bal-MAI-USDC",
-    "contract_address": "0x6eDe7C3015fE3Ff40c4cC74b1A02a3a0C85A3A35",
-    "rewardToken": "BAL",
-    "min_idle_minutes": 20,
-    "last_harvest": 0,
-    "abi_file": "abis/balancer.json"
-  },
-  {
     "protocol": "quickswap",
     "name": "QS-USDC-WETH",
     "contract_address": "0xF2e8C2C9E2A10a3D6d2Cb13405Ee0f258EDeB58d",

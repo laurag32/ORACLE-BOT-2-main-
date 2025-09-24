@@ -1,43 +1,36 @@
-import csv
-import os
-import time
-from price_fetcher import get_price
-
-LOG_FILE = "logs/profit_log.csv"
-
 def log_profit(tx_hash, watcher, gas_gwei, public_address, contract):
+    """
+    Reads real-time earned rewards from contracts and logs USD profit.
+    Autofarm: pendingReward(pid, address)
+    Balancer: earned()
+    Quickswap: pendingReward or pendingTokens depending on farm
+    """
     try:
-        os.makedirs("logs", exist_ok=True)
+        method_candidates = ["pendingReward", "earned", "pendingTokens"]
+        func = None
+        for name in method_candidates:
+            if hasattr(contract.functions, name):
+                func = getattr(contract.functions, name)
+                break
+        if func is None:
+            print(f"[ProfitLogger] Could not find reward function for {watcher['protocol']}")
+            return 0.0
 
-        # --- Fetch real-time reward ---
-        protocol = watcher["protocol"]
-        reward_amount = 0.0
-        reward_token = watcher.get("rewardToken", "MATIC")
+        # Build call
+        sig = func._function_signature() if hasattr(func, "_function_signature") else None
+        if watcher.get("pid") and watcher.get("address"):
+            args = [watcher["pid"], public_address]
+        elif watcher.get("pid"):
+            args = [watcher["pid"]]
+        else:
+            args = []
 
-        if protocol == "autofarm":
-            pid = watcher.get("pid", 0)
-            reward_amount = contract.functions.pendingReward(pid, public_address).call() / 1e18
-        elif protocol == "balancer":
-            reward_amount = contract.functions.earned().call() / 1e18
-        elif protocol == "quickswap":
-            pid = watcher.get("pid", 0)
-            reward_amount = contract.functions.pendingReward(pid, public_address).call() / 1e18
+        earned_amount = func(*args).call()
+        # convert to USD via watcher.price if available
+        usd_value = earned_amount * watcher.get("price", 0)
+        print(f"[ProfitLogger] Earned: {earned_amount}, USD: {usd_value:.2f}")
+        return usd_value
 
-        token_price = get_price(reward_token)
-        matic_price = get_price("MATIC")
-        reward_usd = reward_amount * token_price
-        gas_cost_usd = (gas_gwei * 1e-9) * 210000 * matic_price
-        profit = reward_usd - gas_cost_usd
-
-        file_exists = os.path.isfile(LOG_FILE)
-        with open(LOG_FILE, "a", newline="") as csvfile:
-            writer = csv.writer(csvfile)
-            if not file_exists:
-                writer.writerow(["timestamp", "protocol", "profit_usd", "gas_cost_usd", "tx_hash"])
-            writer.writerow([time.strftime("%Y-%m-%d %H:%M:%S"), protocol, f"{profit:.4f}", f"{gas_cost_usd:.4f}", tx_hash])
-
-        print(f"[ProfitLogger] {protocol} profit: ${profit:.4f}, gas: ${gas_cost_usd:.4f}, tx: {tx_hash}")
-        return profit
     except Exception as e:
         print(f"[ProfitLogger] Error: {e}")
         return 0.0

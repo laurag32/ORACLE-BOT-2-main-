@@ -33,22 +33,22 @@ def send_tx(web3: Web3, contract, watcher, private_key, public_address):
     """
     Auto-selects correct function and estimates gas dynamically.
     Supports:
+      - harvest()
       - harvest(uint256)
       - claimRewards()
     """
-    # Determine harvest function
-    method_candidates = [f for f in dir(contract.functions) if f.lower().startswith("harvest")]
+    # Determine method
+    method_candidates = [f for f in dir(contract.functions) if f.lower().startswith("harvest") or f == "claimRewards"]
     if not method_candidates:
         raise ValueError(f"No valid harvest function found for {watcher['protocol']}")
-
+    
     method_name = method_candidates[0]
     func = getattr(contract.functions, method_name)
-
-    # Check if harvest requires an argument
+    
+    # Build transaction
     try:
-        # If ABI has inputs, use watcher pid
-        inputs = func.abi.get("inputs", [])
-        if len(inputs) == 1:
+        # If the function expects a pid, pass it
+        if "(uint256)" in method_name:
             pid = watcher.get("pid", 0)
             tx = func(pid).build_transaction({
                 "from": public_address,
@@ -71,6 +71,12 @@ def send_tx(web3: Web3, contract, watcher, private_key, public_address):
     except Exception as e:
         print(f"[Helpers] Gas estimation failed, using default 210000: {e}")
         tx["gas"] = 210000
+
+    # Check for pending txs
+    pending = web3.eth.get_transaction_count(public_address) - tx["nonce"]
+    if pending > 0:
+        print(f"[Helpers] Pending tx detected. Increasing gas to replace...")
+        tx["gasPrice"] = int(tx["gasPrice"] * 1.25)
 
     # Sign & send
     signed_tx = web3.eth.account.sign_transaction(tx, private_key)

@@ -7,16 +7,21 @@ from telegram_notifier import send_alert
 
 load_dotenv()
 
-RPC_URLS = [os.getenv(f"RPC_URL_{i}") for i in range(1,5)]
+RPC_URLS = [
+    os.getenv("RPC_URL_1"),
+    os.getenv("RPC_URL_2"),
+    os.getenv("RPC_URL_3"),
+    os.getenv("RPC_URL_4"),
+]
 RPC_URLS = [rpc for rpc in RPC_URLS if rpc]
 
 if not RPC_URLS:
-    raise RuntimeError("❌ No RPC endpoints found")
+    raise RuntimeError("❌ No RPC endpoints found in .env")
 
 FAIL_LIMIT = 3
-COOLDOWN = 300
-ALERT_THRESHOLD = 300
-rpc_status = {rpc: {"fails": 0, "cooldown_until": 0, "was_dead": False} for rpc in RPC_URLS}
+COOLDOWN_SECONDS = 300
+ALERT_THRESHOLD = 5 * 60
+rpc_status = {rpc: {"fails": 0, "cooldown_until": 0, "last_ok": None, "was_dead": False} for rpc in RPC_URLS}
 last_all_dead = None
 
 def get_web3():
@@ -36,22 +41,24 @@ def get_web3():
                         send_alert(f"✅ RPC back online: {rpc}")
                         status["was_dead"] = False
                     status["fails"] = 0
+                    status["last_ok"] = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
                     last_all_dead = None
                     return w3
                 else:
                     status["fails"] += 1
-            except:
+            except Exception as e:
+                print(f"[RPC Manager] ❌ Error with {rpc}: {e}")
                 status["fails"] += 1
 
             if status["fails"] >= FAIL_LIMIT:
-                status["cooldown_until"] = now + COOLDOWN
+                status["cooldown_until"] = now + COOLDOWN_SECONDS
                 status["was_dead"] = True
-                print(f"[RPC Manager] ⏸ {rpc} in cooldown for {COOLDOWN//60} mins")
+                print(f"[RPC Manager] ⏸ {rpc} in cooldown for {COOLDOWN_SECONDS//60} mins")
 
         if not any(Web3(Web3.HTTPProvider(rpc)).is_connected() for rpc in RPC_URLS):
             if last_all_dead is None:
                 last_all_dead = now
             elif now - last_all_dead > ALERT_THRESHOLD:
-                send_alert("🚨 All RPCs unreachable")
+                send_alert("🚨 All RPCs unreachable for 5+ minutes. Bot is stalled.")
                 last_all_dead = now
         time.sleep(30)

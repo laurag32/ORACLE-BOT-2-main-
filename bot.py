@@ -30,10 +30,10 @@ PUBLIC_ADDRESS = os.getenv("PUBLIC_ADDRESS")
 # -------------------------
 # Safety params
 # -------------------------
-MAX_GAS_GWEI = 600          # harvest allowed up to 600 gwei
-ABSOLUTE_MAX_GAS_GWEI = 600 # emergency cutoff
+MAX_GAS_GWEI = 600
+ABSOLUTE_MAX_GAS_GWEI = 600
 MIN_PROFIT_USD = 1
-GAS_MULTIPLIER = 4           # temporarily higher to avoid underpriced txs
+GAS_MULTIPLIER = 4
 FAIL_PAUSE_MINS = 10
 
 # -------------------------
@@ -41,10 +41,9 @@ FAIL_PAUSE_MINS = 10
 # -------------------------
 w3 = get_web3()
 
-# Exit if bot disabled
 if not BOT_ENABLED:
-    print("⏸ BOT_DISABLED in .env — exiting.")
-    send_alert("Bot disabled via .env toggle. No jobs running.")
+    print("⏸ BOT_DISABLED — exiting.")
+    send_alert("Bot disabled via .env toggle.")
     exit(0)
 
 # Load watchers
@@ -63,8 +62,6 @@ def run_bot():
     while True:
         try:
             gas_price = get_gas_price(w3)
-
-            # Gas safety check
             try:
                 is_gas_safe(gas_price, MAX_GAS_GWEI, ABSOLUTE_MAX_GAS_GWEI)
             except ValueError as e:
@@ -77,19 +74,14 @@ def run_bot():
                 protocol = watcher["protocol"]
                 name = watcher.get("name", "Unnamed")
 
-                # Respect toggles
                 if protocol == "autofarm" and not ENABLE_AUTOFARM:
                     continue
                 if protocol == "quickswap" and not ENABLE_QUICKSWAP:
                     continue
-                if protocol == "balancer":  # silenced
-                    continue
 
-                # Check if eligible to run
                 if not should_update(watcher):
                     continue
 
-                # Load contract
                 contract = load_contract(
                     w3, watcher["contract_address"], watcher["abi_file"]
                 )
@@ -98,18 +90,14 @@ def run_bot():
                     print(f"✅ Ready to harvest {name} on {protocol}...")
                     tx_hash = send_tx(w3, contract, watcher, PRIVATE_KEY, PUBLIC_ADDRESS)
 
-                    # log profit directly reading from watcher
                     profit = log_profit(tx_hash, watcher, gas_price, PUBLIC_ADDRESS, contract)
 
                     if profit < MIN_PROFIT_USD or profit < gas_price * GAS_MULTIPLIER:
                         print(f"⚠️ Skipping {protocol}: profit too low (${profit:.2f}).")
                         continue
 
-                    send_alert(
-                        f"✅ {protocol} job executed. Profit: ${profit:.2f}, Gas: {gas_price} gwei"
-                    )
+                    send_alert(f"✅ {protocol} job executed. Profit: ${profit:.2f}, Gas: {gas_price} gwei")
 
-                    # update last_harvest in memory and persist
                     watcher["last_harvest"] = time.time()
                     with open("watchers.json", "w") as f:
                         json.dump(watchers, f, indent=2)

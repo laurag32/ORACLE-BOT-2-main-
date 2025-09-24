@@ -4,13 +4,7 @@ import time
 import threading
 from dotenv import load_dotenv
 from flask import Flask
-from utils.helpers import (
-    load_contract,
-    get_gas_price,
-    send_tx,
-    should_update,
-    is_gas_safe
-)
+from utils.helpers import load_contract, get_gas_price, send_tx, should_update, is_gas_safe
 from profit_logger import log_profit
 from telegram_notifier import send_alert
 from rpc_manager import get_web3
@@ -19,7 +13,6 @@ from rpc_manager import get_web3
 # Load env vars
 # -------------------------
 load_dotenv()
-
 BOT_ENABLED = os.getenv("BOT_ENABLED", "true").lower() == "true"
 ENABLE_AUTOFARM = os.getenv("ENABLE_AUTOFARM", "true").lower() == "true"
 ENABLE_BALANCER = os.getenv("ENABLE_BALANCER", "true").lower() == "true"
@@ -32,10 +25,10 @@ PUBLIC_ADDRESS = os.getenv("PUBLIC_ADDRESS")
 # -------------------------
 # Safety params
 # -------------------------
-MAX_GAS_GWEI = 600          # harvest allowed up to 600 gwei
-ABSOLUTE_MAX_GAS_GWEI = 600 # emergency cutoff
+MAX_GAS_GWEI = 600
+ABSOLUTE_MAX_GAS_GWEI = 600
 MIN_PROFIT_USD = 1
-GAS_MULTIPLIER = 4           # temporarily higher to avoid underpriced txs
+GAS_MULTIPLIER = 4
 FAIL_PAUSE_MINS = 10
 
 # -------------------------
@@ -43,13 +36,14 @@ FAIL_PAUSE_MINS = 10
 # -------------------------
 w3 = get_web3()
 
-# Exit if bot disabled
 if not BOT_ENABLED:
     print("⏸ BOT_DISABLED in .env — exiting.")
     send_alert("Bot disabled via .env toggle. No jobs running.")
     exit(0)
 
+# -------------------------
 # Load watchers
+# -------------------------
 with open("watchers.json") as f:
     watchers = json.load(f)
 
@@ -65,8 +59,6 @@ def run_bot():
     while True:
         try:
             gas_price = get_gas_price(w3)
-
-            # Gas safety check
             try:
                 is_gas_safe(gas_price, MAX_GAS_GWEI, ABSOLUTE_MAX_GAS_GWEI)
             except ValueError as e:
@@ -79,7 +71,6 @@ def run_bot():
                 protocol = watcher["protocol"]
                 name = watcher.get("name", "Unnamed")
 
-                # Respect toggles
                 if protocol == "autofarm" and not ENABLE_AUTOFARM:
                     continue
                 if protocol == "balancer" and not ENABLE_BALANCER:
@@ -89,37 +80,30 @@ def run_bot():
                 if protocol == "oracle" and not ENABLE_ORACLE:
                     continue
 
-                # Check if eligible to run
                 if not should_update(watcher):
                     continue
 
-                # Load contract
-                contract = load_contract(
-                    w3, watcher["contract_address"], watcher["abi_file"]
-                )
+                contract = load_contract(w3, watcher["contract_address"], watcher["abi_file"])
 
                 try:
                     print(f"✅ Ready to harvest {name} on {protocol}...")
                     tx_hash = send_tx(w3, contract, watcher, PRIVATE_KEY, PUBLIC_ADDRESS)
 
-                    # log profit directly reading from watcher
+                    # log profit by reading actual rewards
                     profit = log_profit(tx_hash, watcher, gas_price, PUBLIC_ADDRESS, contract)
 
                     if profit < MIN_PROFIT_USD or profit < gas_price * GAS_MULTIPLIER:
                         print(f"⚠️ Skipping {protocol}: profit too low (${profit:.2f}).")
                         continue
 
-                    send_alert(
-                        f"✅ {protocol} job executed. Profit: ${profit:.2f}, Gas: {gas_price} gwei"
-                    )
+                    send_alert(f"✅ {protocol} job executed. Profit: ${profit:.2f}, Gas: {gas_price} gwei")
 
-                    # update last_harvest in memory and persist
+                    # persist last_harvest
                     watcher["last_harvest"] = time.time()
                     with open("watchers.json", "w") as f:
                         json.dump(watchers, f, indent=2)
 
                     fail_count = 0
-
                 except Exception as e:
                     print(f"❌ Error on {protocol}: {e}")
                     fail_count += 1
@@ -132,7 +116,6 @@ def run_bot():
                         fail_count = 0
 
             time.sleep(60)
-
         except Exception as loop_err:
             print(f"🔥 Main loop error: {loop_err}")
             send_alert(f"🔥 Main loop error: {str(loop_err)}")

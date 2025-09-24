@@ -27,30 +27,28 @@ def is_gas_safe(current_gas_gwei, max_gas_gwei=600, absolute_max_gwei=600):
     return True
 
 # -------------------------
-# Send signed transaction dynamically
+# Dynamically send signed transaction
 # -------------------------
 def send_tx(web3: Web3, contract, watcher, private_key, public_address):
     """
-    Auto-selects correct function and handles:
-      - harvest()
+    Auto-selects correct function and estimates gas dynamically.
+    Supports:
       - harvest(uint256)
       - claimRewards()
     """
-    # Detect candidate functions
-    method_candidates = [
-        f for f in dir(contract.functions)
-        if f.lower().startswith("harvest") or f == "claimRewards"
-    ]
+    # Determine harvest function
+    method_candidates = [f for f in dir(contract.functions) if f.lower().startswith("harvest")]
     if not method_candidates:
         raise ValueError(f"No valid harvest function found for {watcher['protocol']}")
 
     method_name = method_candidates[0]
     func = getattr(contract.functions, method_name)
 
-    # Build transaction
+    # Check if harvest requires an argument
     try:
-        if "(uint256)" in method_name:
-            # Provide PID argument if required
+        # If ABI has inputs, use watcher pid
+        inputs = func.abi.get("inputs", [])
+        if len(inputs) == 1:
             pid = watcher.get("pid", 0)
             tx = func(pid).build_transaction({
                 "from": public_address,
@@ -74,7 +72,7 @@ def send_tx(web3: Web3, contract, watcher, private_key, public_address):
         print(f"[Helpers] Gas estimation failed, using default 210000: {e}")
         tx["gas"] = 210000
 
-    # Sign & send transaction
+    # Sign & send
     signed_tx = web3.eth.account.sign_transaction(tx, private_key)
     tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
     return tx_hash.hex()

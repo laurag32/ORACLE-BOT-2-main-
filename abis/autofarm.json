@@ -1,18 +1,4 @@
 [
-  {
-    "inputs": [],
-    "name": "harvest",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "pendingReward",
-    "outputs": [
-      { "internalType": "uint256", "name": "", "type": "uint256" }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  }
+  { "inputs": [{"internalType": "uint256","name":"_pid","type":"uint256"},{"internalType":"address","name":"_user","type":"address"}],"name":"pendingReward","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function" },
+  { "inputs": [{"internalType": "uint256","name":"_pid","type":"uint256"}],"name":"harvest","outputs":[],"stateMutability":"nonpayable","type":"function" }
 ]

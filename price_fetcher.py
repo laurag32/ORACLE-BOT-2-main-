@@ -1,16 +1,15 @@
 # price_fetcher.py
 import requests
 import time
+import logging
 
-price_cache = {}
-CACHE_TTL = int(__import__("os").environ.get("PRICE_CACHE_TTL_S", 60))
-COINGECKO_API = "https://api.coingecko.com/api/v3/simple/price"
+logger = logging.getLogger("PriceFetcher")
 
+# Correct CoinGecko IDs
 SYMBOL_MAP = {
     "AUTO": "auto",
-    "BAL": "balancer",
-    "QUICK": "quickswap",
-    "MATIC": "matic-network",
+    "QUICK": "quick",
+    "MATIC": "polygon-ecosystem-token",
     "USDC": "usd-coin",
     "DAI": "dai",
     "USDT": "tether",
@@ -18,30 +17,38 @@ SYMBOL_MAP = {
     "WBTC": "wrapped-bitcoin"
 }
 
-def get_price(symbol: str) -> float:
-    now = time.time()
-    symbol = symbol.upper()
+COINGECKO_API = "https://api.coingecko.com/api/v3/simple/price"
 
-    if symbol not in SYMBOL_MAP:
-        # best-effort: return 0 to indicate inability to price
-        print(f"[PriceFetcher] Symbol {symbol} not in SYMBOL_MAP")
-        return 0.0
+class PriceFetcher:
+    def __init__(self, symbols=None):
+        # If not specified, use all
+        self.symbols = symbols or SYMBOL_MAP.keys()
+        self.prices = {sym: 0.0 for sym in self.symbols}
 
-    if symbol in price_cache and now - price_cache[symbol]["ts"] < CACHE_TTL:
-        return price_cache[symbol]["price"]
+    def fetch_prices(self):
+        ids = ",".join([SYMBOL_MAP[sym] for sym in self.symbols if sym in SYMBOL_MAP])
+        params = {"ids": ids, "vs_currencies": "usd"}
+        try:
+            response = requests.get(COINGECKO_API, params=params, timeout=10)
+            data = response.json()
+            for sym in self.symbols:
+                cg_id = SYMBOL_MAP.get(sym)
+                if cg_id and cg_id in data:
+                    self.prices[sym] = float(data[cg_id]["usd"])
+                else:
+                    logger.warning(f"Failed to fetch {sym}: '{cg_id}'")
+            return self.prices
+        except requests.RequestException as e:
+            logger.error(f"Price fetch failed: {e}")
+            return {sym: 0.0 for sym in self.symbols}
 
-    try:
-        resp = requests.get(COINGECKO_API, params={
-            "ids": SYMBOL_MAP[symbol],
-            "vs_currencies": "usd"
-        }, timeout=10)
-        data = resp.json()
-        usd_price = float(data[SYMBOL_MAP[symbol]]["usd"])
-        price_cache[symbol] = {"price": usd_price, "ts": now}
-        return usd_price
-    except Exception as e:
-        print(f"[PriceFetcher] Failed to fetch {symbol}: {e}")
-        # fallback to cache if available
-        if symbol in price_cache:
-            return price_cache[symbol]["price"]
-        return 0.0
+    def get_price(self, symbol):
+        return self.prices.get(symbol, 0.0)
+
+# Example usage:
+if __name__ == "__main__":
+    fetcher = PriceFetcher()
+    while True:
+        prices = fetcher.fetch_prices()
+        logger.info(f"Current Prices: {prices}")
+        time.sleep(30)  # fetch every 30 seconds

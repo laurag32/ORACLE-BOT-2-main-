@@ -1,10 +1,47 @@
+# price_fetcher.py
 import requests
+import time
 
-def get_token_price(token_symbol: str):
+price_cache = {}
+CACHE_TTL = int(__import__("os").environ.get("PRICE_CACHE_TTL_S", 60))
+COINGECKO_API = "https://api.coingecko.com/api/v3/simple/price"
+
+SYMBOL_MAP = {
+    "AUTO": "auto",
+    "BAL": "balancer",
+    "QUICK": "quickswap",
+    "MATIC": "matic-network",
+    "USDC": "usd-coin",
+    "DAI": "dai",
+    "USDT": "tether",
+    "ETH": "ethereum",
+    "WBTC": "wrapped-bitcoin"
+}
+
+def get_price(symbol: str) -> float:
+    now = time.time()
+    symbol = symbol.upper()
+
+    if symbol not in SYMBOL_MAP:
+        # best-effort: return 0 to indicate inability to price
+        print(f"[PriceFetcher] Symbol {symbol} not in SYMBOL_MAP")
+        return 0.0
+
+    if symbol in price_cache and now - price_cache[symbol]["ts"] < CACHE_TTL:
+        return price_cache[symbol]["price"]
+
     try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={token_symbol}&vs_currencies=usd"
-        resp = requests.get(url).json()
-        return resp.get(token_symbol, {}).get("usd", 0)
+        resp = requests.get(COINGECKO_API, params={
+            "ids": SYMBOL_MAP[symbol],
+            "vs_currencies": "usd"
+        }, timeout=10)
+        data = resp.json()
+        usd_price = float(data[SYMBOL_MAP[symbol]]["usd"])
+        price_cache[symbol] = {"price": usd_price, "ts": now}
+        return usd_price
     except Exception as e:
-        print(f"[PriceFetcher] Failed to fetch {token_symbol} price: {e}")
-        return 0
+        print(f"[PriceFetcher] Failed to fetch {symbol}: {e}")
+        # fallback to cache if available
+        if symbol in price_cache:
+            return price_cache[symbol]["price"]
+        return 0.0

@@ -1,92 +1,68 @@
+# utils/helpers.py
 import json
 import time
 from web3 import Web3
+from web3.exceptions import ContractLogicError
 
-# -------------------------
 # Load contract ABI and create contract object
-# -------------------------
 def load_contract(web3: Web3, contract_address: str, abi_path: str):
+    """
+    Load a smart contract using ABI JSON file path (relative to repo).
+    """
     with open(abi_path, "r") as f:
         abi = json.load(f)
-    return web3.eth.contract(address=Web3.to_checksum_address(contract_address), abi=abi)
+    addr = Web3.to_checksum_address(contract_address)
+    return web3.eth.contract(address=addr, abi=abi)
 
-# -------------------------
+
 # Get current gas price in gwei
-# -------------------------
-def get_gas_price(web3: Web3):
-    return web3.eth.gas_price // 10**9  # wei → gwei
-
-# -------------------------
-# Check if gas is safe
-# -------------------------
-def is_gas_safe(current_gas_gwei, max_gas_gwei=600, absolute_max_gwei=600):
-    if current_gas_gwei > absolute_max_gwei:
-        raise ValueError(
-            f"🔥 Gas too high! ({current_gas_gwei} gwei) exceeds absolute max ({absolute_max_gwei})"
-        )
-    return True
-
-# -------------------------
-# Dynamically send signed transaction
-# -------------------------
-def send_tx(web3: Web3, contract, watcher, private_key, public_address):
+def get_gas_price(web3: Web3) -> int:
     """
-    Auto-selects correct function and estimates gas dynamically.
-    Supports:
-      - harvest()
-      - harvest(uint256)
-      - claimRewards()
+    Return current gas price in GWEI (int).
     """
-    # Determine method
-    method_candidates = [f for f in dir(contract.functions) if f.lower().startswith("harvest") or f == "claimRewards"]
-    if not method_candidates:
-        raise ValueError(f"No valid harvest function found for {watcher['protocol']}")
-    
-    method_name = method_candidates[0]
-    func = getattr(contract.functions, method_name)
-    
-    # Build transaction
     try:
-        # If the function expects a pid, pass it
-        if "(uint256)" in method_name:
-            pid = watcher.get("pid", 0)
-            tx = func(pid).build_transaction({
-                "from": public_address,
-                "nonce": web3.eth.get_transaction_count(public_address),
-                "gasPrice": web3.eth.gas_price,
-            })
-        else:
-            tx = func().build_transaction({
-                "from": public_address,
-                "nonce": web3.eth.get_transaction_count(public_address),
-                "gasPrice": web3.eth.gas_price,
-            })
-    except Exception as e:
-        raise ValueError(f"Error building tx: {e}")
+        wei = web3.eth.gas_price
+        return int(wei // 10**9)
+    except Exception:
+        # fallback
+        return 0
 
-    # Estimate gas dynamically
+
+# Estimate gas for a prepared transaction dictionary safely
+def estimate_gas_safe(web3: Web3, tx: dict, fallback: int = 210000) -> int:
     try:
-        estimated_gas = web3.eth.estimate_gas(tx)
-        tx["gas"] = int(estimated_gas * 1.2)  # +20% buffer
+        est = web3.eth.estimate_gas(tx)
+        return int(est)
     except Exception as e:
-        print(f"[Helpers] Gas estimation failed, using default 210000: {e}")
-        tx["gas"] = 210000
+        print(f"[Helpers] Gas estimate failed: {e}; using fallback {fallback}")
+        return fallback
 
-    # Check for pending txs
-    pending = web3.eth.get_transaction_count(public_address) - tx["nonce"]
-    if pending > 0:
-        print(f"[Helpers] Pending tx detected. Increasing gas to replace...")
-        tx["gasPrice"] = int(tx["gasPrice"] * 1.25)
 
-    # Sign & send
-    signed_tx = web3.eth.account.sign_transaction(tx, private_key)
-    tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
+# Sign and broadcast a prepared tx dict (expects tx['gasPrice'] in wei)
+def sign_and_send_tx(web3: Web3, tx: dict, private_key: str) -> str:
+    """
+    Signs the tx and sends it. Returns tx hash hex.
+    """
+    signed = web3.eth.account.sign_transaction(tx, private_key)
+    tx_hash = web3.eth.send_raw_transaction(signed.rawTransaction)
     return tx_hash.hex()
 
-# -------------------------
-# Decide if bot should update
-# -------------------------
-def should_update(watcher):
-    last = watcher.get("last_harvest", 0)
-    interval = watcher.get("min_idle_minutes", 20) * 60
-    return (time.time() - last) > interval
+
+# Backwards-compatible simple send_tx wrapper (for tests / legacy)
+def send_tx(web3: Web3, contract, watcher, private_key, public_address):
+    """
+    Legacy wrapper that calls a default harvest/claim with no args.
+    Prefer ai_agent's robust pipeline.
+    """
+    method = getattr(contract.functions, "harvest", None) or getattr(contract.functions, "claimRewards", None)
+    if method is None:
+        raise ValueError("No harvest/claim function found on contract.")
+    tx = method().build_transaction({
+        "from": public_address,
+        "nonce": web3.eth.get_transaction_count(public_address),
+        "gasPrice": web3.eth.gas_price,
+    })
+    # estimate gas with helper
+    gas_limit = estimate_gas_safe(web3, tx, fallback=210000)
+    tx["gas"] = int(gas_limit * 1.2)
+    return sign_and_send_tx(web3, tx, private_key)

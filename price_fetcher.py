@@ -1,4 +1,3 @@
-# price_fetcher.py
 import requests
 import time
 import logging
@@ -45,7 +44,7 @@ class PriceFetcher:
     def get_price(self, symbol):
         return self.prices.get(symbol, 0.0)
 
-# Example usage:
+# Example usage
 if __name__ == "__main__":
     fetcher = PriceFetcher()
     while True:

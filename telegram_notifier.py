@@ -1,23 +1,28 @@
-import os
+# telegram_notifier.py
 import requests
-from dotenv import load_dotenv
+import json
+from utils.helpers import load_config
 
-load_dotenv()
+CONFIG_FILE = "config.json"
+config = load_config(CONFIG_FILE)
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+BOT_TOKEN = config["telegram"]["bot_token"]
+CHAT_ID = config["telegram"]["chat_id"]
+REALTIME = config["telegram"]["enable_real_time_alerts"]
+
 
 def send_alert(message: str):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("[TelegramNotifier] Token/ChatID not set, skipping alert.")
+    """
+    Send Telegram alert if enabled.
+    """
+    if not REALTIME:
         return
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
     try:
-        resp = requests.post(url, json={
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message
-        }, timeout=10)
-        if resp.status_code != 200:
-            print(f"[TelegramNotifier] Failed to send message: {resp.text}")
+        r = requests.post(url, data=payload, timeout=10)
+        if r.status_code != 200:
+            print(f"[Telegram] ⚠️ Failed to send: {r.text}")
     except Exception as e:
-        print(f"[TelegramNotifier] Exception: {e}")
+        print(f"[Telegram] ❌ Error: {e}")

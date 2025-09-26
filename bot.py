@@ -23,10 +23,10 @@ PRIVATE_KEY = os.getenv("PRIVATE_KEY")
 PUBLIC_ADDRESS = os.getenv("PUBLIC_ADDRESS")
 
 # Safety + policy
-MAX_GAS_GWEI = int(os.getenv("MAX_GAS_GWEI", "40"))           # normal execution limit (you set to 40)
-ABSOLUTE_MAX_GAS_GWEI = int(os.getenv("ABSOLUTE_MAX_GAS_GWEI", "600"))  # hard cutoff
+MAX_GAS_GWEI = int(os.getenv("MAX_GAS_GWEI", "40"))
+ABSOLUTE_MAX_GAS_GWEI = int(os.getenv("ABSOLUTE_MAX_GAS_GWEI", "600"))
 MIN_PROFIT_USD = float(os.getenv("MIN_PROFIT_USD", "1.0"))
-PROFIT_MULTIPLIER = float(os.getenv("PROFIT_MULTIPLIER", "4.0"))  # your temporary bump
+PROFIT_MULTIPLIER = float(os.getenv("PROFIT_MULTIPLIER", "1.05"))  # default 5% margin
 FAIL_PAUSE_MINS = int(os.getenv("FAIL_PAUSE_MINS", "10"))
 
 WATCHERS_FILE = "watchers.json"
@@ -43,19 +43,17 @@ if not BOT_ENABLED:
         pass
     exit(0)
 
-# Load watchers (must exist)
+# Load watchers
 with open(WATCHERS_FILE, "r") as f:
     watchers = json.load(f)
 
 fail_count = 0
 
 def save_watchers():
-    """Persist watchers list atomically."""
     tmp = WATCHERS_FILE + ".tmp"
     with open(tmp, "w") as f:
         json.dump(watchers, f, indent=2)
     os.replace(tmp, WATCHERS_FILE)
-
 
 def run_bot():
     global fail_count
@@ -69,9 +67,6 @@ def run_bot():
 
     while True:
         try:
-            # get current gas (ai_agent will re-check inside, but we can log)
-            # gas_price = get_gas_price(w3)  # ai_agent fetches fresh
-
             for watcher in watchers:
                 protocol = watcher.get("protocol", "").lower()
                 name = watcher.get("name", "Unnamed")
@@ -86,9 +81,7 @@ def run_bot():
                 if protocol == "oracle" and not ENABLE_ORACLE:
                     continue
 
-                # Should be updated (ai_agent performs final check too)
                 try:
-                    # ai_agent handles detection, gas estimate, sending
                     tx_hash = analyze_and_act(w3, watcher, PUBLIC_ADDRESS, PRIVATE_KEY, config)
                     if tx_hash:
                         msg = f"✅ {name} harvested: {tx_hash}"
@@ -97,13 +90,8 @@ def run_bot():
                             send_alert(msg)
                         except Exception:
                             pass
-                        # watcher updated & persisted inside ai_agent; we re-save to be safe
                         save_watchers()
                         fail_count = 0
-                    else:
-                        # Nothing done for this watcher (skip)
-                        pass
-
                 except Exception as e:
                     print(f"❌ Error on {name}: {e}")
                     try:
@@ -120,7 +108,6 @@ def run_bot():
                         time.sleep(FAIL_PAUSE_MINS * 60)
                         fail_count = 0
 
-            # main loop wait
             time.sleep(int(os.getenv("MAIN_LOOP_SLEEP_S", "60")))
 
         except Exception as loop_err:
@@ -131,8 +118,7 @@ def run_bot():
                 pass
             time.sleep(60)
 
-
-# Flask health endpoints for Render / UptimeRobot
+# Flask for Render
 app = Flask(__name__)
 
 @app.route("/")
@@ -143,12 +129,8 @@ def index():
 def ping():
     return "pong 🏓"
 
-
 if __name__ == "__main__":
-    # Run bot in background thread
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
-
-    # Start Flask server for Render port binding
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)

@@ -19,6 +19,10 @@ COINGECKO_API = "https://api.coingecko.com/api/v3/simple/price"
 _prices_cache = {}
 
 def get_price(symbol: str) -> float:
+    """
+    Fetch USD price for a token symbol via CoinGecko.
+    Caches last successful fetch.
+    """
     global _prices_cache
     symbol = symbol.upper()
     if symbol not in SYMBOL_MAP:
@@ -27,8 +31,9 @@ def get_price(symbol: str) -> float:
         cg_id = SYMBOL_MAP[symbol]
         response = requests.get(COINGECKO_API, params={"ids": cg_id, "vs_currencies": "usd"}, timeout=10)
         data = response.json()
-        _prices_cache[symbol] = float(data[cg_id]["usd"])
-        return _prices_cache[symbol]
+        price = float(data[cg_id]["usd"])
+        _prices_cache[symbol] = price
+        return price
     except Exception as e:
-        logger.warning(f"Failed to fetch price for {symbol}: {e}")
+        logger.warning(f"[PriceFetcher] Failed to fetch {symbol}: {e}")
         return _prices_cache.get(symbol, 0.0)

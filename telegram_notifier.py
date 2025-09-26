@@ -1,28 +1,19 @@
-# telegram_notifier.py
+import os
 import requests
-import json
-from utils.helpers import load_config
 
-CONFIG_FILE = "config.json"
-config = load_config(CONFIG_FILE)
-
-BOT_TOKEN = config["telegram"]["bot_token"]
-CHAT_ID = config["telegram"]["chat_id"]
-REALTIME = config["telegram"]["enable_real_time_alerts"]
-
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 def send_alert(message: str):
-    """
-    Send Telegram alert if enabled.
-    """
-    if not REALTIME:
+    """Send Telegram message via bot"""
+    if not TOKEN or not CHAT_ID:
+        print(f"[Telegram] Skipped (no credentials): {message}")
         return
 
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
     try:
-        r = requests.post(url, data=payload, timeout=10)
-        if r.status_code != 200:
-            print(f"[Telegram] ⚠️ Failed to send: {r.text}")
+        url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+        resp = requests.post(url, json={"chat_id": CHAT_ID, "text": message})
+        if resp.status_code != 200:
+            print(f"[Telegram] Failed {resp.status_code}: {resp.text}")
     except Exception as e:
-        print(f"[Telegram] ❌ Error: {e}")
+        print(f"[Telegram] Error: {e}")

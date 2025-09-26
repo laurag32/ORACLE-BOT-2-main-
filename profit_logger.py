@@ -1,79 +1,21 @@
-# profit_logger.py
-import csv
+import logging
 import os
-import time
 from decimal import Decimal
-from price_fetcher import PriceFetcher
-from utils.helpers import load_config
 
-CONFIG_FILE = "config.json"
-LOG_FILE = "logs/profit_log.csv"
+logger = logging.getLogger("ProfitLogger")
 
-pf = PriceFetcher()
-config = load_config(CONFIG_FILE)
+MIN_PROFIT_RATIO = float(os.getenv("MIN_PROFIT_RATIO", 1.10))
 
+def is_profitable(reward_usd: float, gas_usd: float) -> bool:
+    """Check if reward / gas >= min profit ratio"""
+    if gas_usd <= 0:
+        return True
+    ratio = Decimal(reward_usd) / Decimal(gas_usd)
+    logger.info(f"[ProfitCheck] reward={reward_usd:.4f} gas={gas_usd:.4f} ratio={ratio:.2f} min={MIN_PROFIT_RATIO}")
+    return ratio >= Decimal(MIN_PROFIT_RATIO)
 
-def _ensure_logs_dir():
-    os.makedirs("logs", exist_ok=True)
-
-
-def gas_cost_usd_from(gas_gwei: float, gas_limit: int) -> float:
-    """Compute USD gas cost using MATIC price"""
-    pf.fetch_prices()
-    matic_price = pf.get_price("MATIC")
-    return (gas_gwei * 1e-9) * gas_limit * matic_price
-
-
-def log_profit(watcher: dict, tx_hash: str, config: dict) -> float:
-    """
-    Log profit into CSV. Returns profit in USD.
-    """
-    try:
-        _ensure_logs_dir()
-
-        pf.fetch_prices()
-
-        reward_token = watcher.get("rewardToken", "MATIC")
-        reward_amount = watcher.get("rewardAmount", 0.0)
-
-        token_price = pf.get_price(reward_token)
-        matic_price = pf.get_price("MATIC")
-
-        reward_usd = float(reward_amount) * float(token_price)
-
-        # conservative fallback gas cost
-        gas_cost_usd = (config["max_gas_gwei"] * 1e-9) * 210000 * matic_price
-
-        profit = reward_usd - gas_cost_usd
-
-        file_exists = os.path.isfile(LOG_FILE)
-        with open(LOG_FILE, "a", newline="") as csvfile:
-            writer = csv.writer(csvfile)
-            if not file_exists:
-                writer.writerow([
-                    "timestamp",
-                    "protocol",
-                    "name",
-                    "profit_usd",
-                    "gas_cost_usd",
-                    "tx_hash",
-                    "reward_token",
-                    "reward_amount"
-                ])
-            writer.writerow([
-                time.strftime("%Y-%m-%d %H:%M:%S"),
-                watcher.get("protocol"),
-                watcher.get("name"),
-                f"{profit:.6f}",
-                f"{gas_cost_usd:.6f}",
-                tx_hash,
-                reward_token,
-                f"{reward_amount:.8f}"
-            ])
-
-        print(f"[ProfitLogger] {watcher.get('protocol')} {watcher.get('name')} profit: ${profit:.6f}, gas: ${gas_cost_usd:.6f}, tx: {tx_hash}")
-        return float(profit)
-
-    except Exception as e:
-        print(f"[ProfitLogger] Error: {e}")
-        return 0.0
+def log_profit(watcher, reward_usd, gas_usd, tx_hash):
+    if is_profitable(reward_usd, gas_usd):
+        logger.info(f"[ProfitLogger] ✅ {watcher['name']} profit={reward_usd - gas_usd:.4f} USD tx={tx_hash}")
+    else:
+        logger.info(f"[ProfitLogger] ❌ {watcher['name']} skipped: reward={reward_usd:.4f}, gas={gas_usd:.4f}")

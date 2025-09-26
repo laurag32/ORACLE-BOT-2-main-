@@ -29,3 +29,14 @@ def sign_and_send_tx(web3: Web3, tx: dict, private_key: str) -> str:
 
 def gas_cost_usd_from(gas_gwei: float, gas_limit: int, matic_price: float) -> float:
     return (gas_gwei * 1e-9) * gas_limit * matic_price
+# utils/helpers.py (add to bottom of file)
+
+import json
+
+def load_config(path="config.json"):
+    with open(path, "r") as f:
+        return json.load(f)
+
+def load_watchers(path="watchers.json"):
+    with open(path, "r") as f:
+        return json.load(f)

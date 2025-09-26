@@ -3,122 +3,68 @@ import os
 import json
 import time
 import threading
-from dotenv import load_dotenv
 from flask import Flask
 
-from rpc_manager import get_web3
-from telegram_notifier import send_alert
 from ai_agent import analyze_and_act
+from utils.helpers import load_config, load_watchers
+from profit_logger import log_profit
+from rpc_manager import get_w3
+from telegram_notifier import send_alert
 
-# Load env vars
-load_dotenv()
 
-BOT_ENABLED = os.getenv("BOT_ENABLED", "true").lower() == "true"
-ENABLE_AUTOFARM = os.getenv("ENABLE_AUTOFARM", "true").lower() == "true"
-ENABLE_BALANCER = os.getenv("ENABLE_BALANCER", "false").lower() == "true"  # disabled by default
-ENABLE_QUICKSWAP = os.getenv("ENABLE_QUICKSWAP", "true").lower() == "true"
-ENABLE_ORACLE = os.getenv("ENABLE_ORACLE", "true").lower() == "true"
-
-PRIVATE_KEY = os.getenv("PRIVATE_KEY")
-PUBLIC_ADDRESS = os.getenv("PUBLIC_ADDRESS")
-
-# Safety + policy
-MAX_GAS_GWEI = int(os.getenv("MAX_GAS_GWEI", "40"))
-ABSOLUTE_MAX_GAS_GWEI = int(os.getenv("ABSOLUTE_MAX_GAS_GWEI", "600"))
-MIN_PROFIT_USD = float(os.getenv("MIN_PROFIT_USD", "1.0"))
-PROFIT_MULTIPLIER = float(os.getenv("PROFIT_MULTIPLIER", "1.05"))  # default 5% margin
-FAIL_PAUSE_MINS = int(os.getenv("FAIL_PAUSE_MINS", "10"))
-
+CONFIG_FILE = "config.json"
 WATCHERS_FILE = "watchers.json"
 
-# Init web3
-w3 = get_web3()
-
-# Exit if bot disabled
-if not BOT_ENABLED:
-    print("⏸ BOT_DISABLED in .env — exiting.")
-    try:
-        send_alert("Bot disabled via .env toggle. No jobs running.")
-    except Exception:
-        pass
-    exit(0)
-
-# Load watchers
-with open(WATCHERS_FILE, "r") as f:
-    watchers = json.load(f)
-
-fail_count = 0
-
-def save_watchers():
-    tmp = WATCHERS_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(watchers, f, indent=2)
-    os.replace(tmp, WATCHERS_FILE)
 
 def run_bot():
-    global fail_count
-    print("🚀 Oracle Bot started...")
+    config = load_config(CONFIG_FILE)
+    watchers = load_watchers(WATCHERS_FILE)
 
-    config = {
-        "min_reward_usd": MIN_PROFIT_USD,
-        "profit_multiplier": PROFIT_MULTIPLIER,
-        "absolute_max_gas_gwei": ABSOLUTE_MAX_GAS_GWEI,
-    }
+    # Setup Web3 connection
+    w3 = get_w3(config["deployment"]["network"])
+
+    public_address = config["wallet"]["address"]
+    private_key = config["wallet"].get("private_key")
+
+    if not private_key:
+        raise RuntimeError("⚠️ Private key not set in config.json under wallet.private_key")
+
+    print("[BOT] 🚀 Oracle Harvester started...")
 
     while True:
-        try:
-            for watcher in watchers:
-                protocol = watcher.get("protocol", "").lower()
-                name = watcher.get("name", "Unnamed")
-
-                # Respect toggles
-                if protocol == "autofarm" and not ENABLE_AUTOFARM:
-                    continue
-                if protocol == "balancer" and not ENABLE_BALANCER:
-                    continue
-                if protocol == "quickswap" and not ENABLE_QUICKSWAP:
-                    continue
-                if protocol == "oracle" and not ENABLE_ORACLE:
-                    continue
-
-                try:
-                    tx_hash = analyze_and_act(w3, watcher, PUBLIC_ADDRESS, PRIVATE_KEY, config)
-                    if tx_hash:
-                        msg = f"✅ {name} harvested: {tx_hash}"
-                        print(msg)
-                        try:
-                            send_alert(msg)
-                        except Exception:
-                            pass
-                        save_watchers()
-                        fail_count = 0
-                except Exception as e:
-                    print(f"❌ Error on {name}: {e}")
-                    try:
-                        send_alert(f"❌ Error on {name}: {e}")
-                    except Exception:
-                        pass
-                    fail_count += 1
-                    if fail_count >= 2:
-                        print("⏸ Pausing after 2 fails...")
-                        try:
-                            send_alert("Bot paused for 10 mins after 2 fails.")
-                        except Exception:
-                            pass
-                        time.sleep(FAIL_PAUSE_MINS * 60)
-                        fail_count = 0
-
-            time.sleep(int(os.getenv("MAIN_LOOP_SLEEP_S", "60")))
-
-        except Exception as loop_err:
-            print(f"🔥 Main loop error: {loop_err}")
+        for watcher in watchers:
             try:
-                send_alert(f"🔥 Main loop error: {loop_err}")
-            except Exception:
-                pass
-            time.sleep(60)
+                # enforce idle time before next harvest
+                min_idle = watcher.get("min_idle_minutes", 20) * 60
+                last_harvest = watcher.get("last_harvest", 0)
+                if time.time() - last_harvest < min_idle:
+                    continue
 
-# Flask for Render
+                # Run AI Agent analysis & harvest
+                tx_hash = analyze_and_act(w3, watcher, public_address, private_key, config)
+                if tx_hash:
+                    print(f"[BOT] ✅ Harvested {watcher['name']} -> {tx_hash}")
+                    send_alert(f"✅ Harvested {watcher['name']} | {config['deployment']['explorer_url']}{tx_hash}")
+                    log_profit(watcher, tx_hash, config)
+
+                    # update last_harvest and persist to file
+                    watcher["last_harvest"] = int(time.time())
+                    with open(WATCHERS_FILE, "w") as f:
+                        json.dump(watchers, f, indent=2)
+
+                else:
+                    print(f"[BOT] Skipped {watcher['name']} (decision=NO)")
+
+            except Exception as e:
+                print(f"[BOT] ❌ Error on {watcher.get('name')}: {e}")
+                send_alert(f"❌ Error on {watcher.get('name')}: {e}")
+                time.sleep(config.get("fail_pause_minutes", 10) * 60)
+
+        # Sleep between full cycles
+        time.sleep(60)
+
+
+# Flask health endpoints for Render / UptimeRobot
 app = Flask(__name__)
 
 @app.route("/")
@@ -129,8 +75,12 @@ def index():
 def ping():
     return "pong 🏓"
 
+
 if __name__ == "__main__":
+    # Run bot in background thread
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
+
+    # Start Flask server (for uptime checks / Render port binding)
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)

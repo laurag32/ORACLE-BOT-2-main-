@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+.env
+venv/
+ENV/
+env/
+.venv/
+
+# Configs with secrets
+config.json
+*.key
+*.pem
+
+# Logs
+logs/
+*.log
+*.csv
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Render / deployment junk
+*.tmp
+*.bak

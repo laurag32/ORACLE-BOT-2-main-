@@ -1,12 +1,14 @@
+# price_fetcher.py
 import requests
 import logging
 
 logger = logging.getLogger("PriceFetcher")
 
+# Correct CoinGecko IDs
 SYMBOL_MAP = {
     "AUTO": "auto",
     "QUICK": "quick",
-    "MATIC": "polygon-ecosystem-token",
+    "MATIC": "matic-network",  # corrected
     "USDC": "usd-coin",
     "DAI": "dai",
     "USDT": "tether",
@@ -16,24 +18,40 @@ SYMBOL_MAP = {
 
 COINGECKO_API = "https://api.coingecko.com/api/v3/simple/price"
 
-_prices_cache = {}
+# Global cache for prices
+_prices = {sym: 0.0 for sym in SYMBOL_MAP.keys()}
 
-def get_price(symbol: str) -> float:
-    """
-    Fetch USD price for a token symbol via CoinGecko.
-    Caches last successful fetch.
-    """
-    global _prices_cache
-    symbol = symbol.upper()
-    if symbol not in SYMBOL_MAP:
-        return 0.0
+def fetch_prices(symbols=None):
+    """Fetch current USD prices from CoinGecko."""
+    global _prices
+    symbols = symbols or SYMBOL_MAP.keys()
+    ids = ",".join([SYMBOL_MAP[sym] for sym in symbols if sym in SYMBOL_MAP])
+    params = {"ids": ids, "vs_currencies": "usd"}
+
     try:
-        cg_id = SYMBOL_MAP[symbol]
-        response = requests.get(COINGECKO_API, params={"ids": cg_id, "vs_currencies": "usd"}, timeout=10)
+        response = requests.get(COINGECKO_API, params=params, timeout=10)
         data = response.json()
-        price = float(data[cg_id]["usd"])
-        _prices_cache[symbol] = price
-        return price
-    except Exception as e:
-        logger.warning(f"[PriceFetcher] Failed to fetch {symbol}: {e}")
-        return _prices_cache.get(symbol, 0.0)
+        for sym in symbols:
+            cg_id = SYMBOL_MAP.get(sym)
+            if cg_id and cg_id in data:
+                _prices[sym] = float(data[cg_id]["usd"])
+            else:
+                logger.warning(f"[PriceFetcher] Failed to fetch {sym}: '{cg_id}'")
+        return _prices
+    except requests.RequestException as e:
+        logger.error(f"[PriceFetcher] Price fetch failed: {e}")
+        return {sym: 0.0 for sym in symbols}
+
+def get_price(symbol):
+    """Return last fetched price (USD) for a symbol. Fetches if missing."""
+    if _prices.get(symbol, 0.0) == 0.0:
+        fetch_prices([symbol])
+    return _prices.get(symbol, 0.0)
+
+# Optional: continuously update prices if run directly
+if __name__ == "__main__":
+    import time
+    while True:
+        prices = fetch_prices()
+        logger.info(f"[PriceFetcher] Current Prices: {prices}")
+        time.sleep(30)  # fetch every 30 seconds

@@ -1,6 +1,7 @@
 # ai_agent.py
 import json
 import time
+import os
 from typing import Optional, Dict, Any
 from web3 import Web3
 from web3.exceptions import ContractLogicError, BadFunctionCallOutput
@@ -38,19 +39,13 @@ def save_watchers_state(watchers: list):
 
 def _call_read_safe(fn, *args):
     try:
-        return fn(*args).call()
+        return fn(*args)
     except (ContractLogicError, BadFunctionCallOutput, ValueError):
         return None
     except Exception:
         return None
 
 def detect_pending_reward(w3: Web3, contract, watcher: Dict[str, Any], wallet_address: str) -> Dict[str, Any]:
-    """
-    Detects pending rewards safely and returns numeric values.
-    """
-    import numbers
-
-    # Use static reward if present
     if watcher.get("rewardAmount") and watcher.get("rewardToken"):
         return {"amount": float(watcher["rewardAmount"]), "symbol": watcher["rewardToken"], "method": "watcher_static", "args": ()}
 
@@ -59,27 +54,17 @@ def detect_pending_reward(w3: Web3, contract, watcher: Dict[str, Any], wallet_ad
         if not fn:
             continue
 
-        try:
-            # pid + address signature
-            if "pid" in sig and "address" in sig:
-                pid = watcher.get("pid", 0)
-                val = fn(pid, wallet_address).call()
-            # no-arg signature
-            elif len(sig) == 0:
-                val = fn().call()
-            else:
-                continue
+        if "pid" in sig and "address" in sig:
+            pid = watcher.get("pid", 0)
+            val = _call_read_safe(fn, pid, wallet_address)
+            if val is not None:
+                return {"amount": float(val), "symbol": watcher.get("rewardToken"), "method": fn_name, "args": (pid, wallet_address)}
 
-            # Ensure numeric
-            if isinstance(val, numbers.Number):
-                return {"amount": float(val), "symbol": watcher.get("rewardToken"), "method": fn_name, "args": (pid, wallet_address) if "pid" in sig else ()}
-            else:
-                return {"amount": 0.0, "symbol": watcher.get("rewardToken"), "method": fn_name, "args": (pid, wallet_address) if "pid" in sig else ()}
+        if len(sig) == 0:
+            val = _call_read_safe(fn)
+            if val is not None:
+                return {"amount": float(val), "symbol": watcher.get("rewardToken"), "method": fn_name, "args": ()}
 
-        except Exception:
-            continue
-
-    # fallback
     return {"amount": float(watcher.get("rewardAmount", 0.0)), "symbol": watcher.get("rewardToken"), "method": "none", "args": ()}
 
 def detect_harvest_function(contract, watcher: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -131,7 +116,6 @@ def decide_to_harvest(watcher: Dict[str, Any], pending_info: Dict[str, Any], gas
     reward_token = pending_info.get("symbol", watcher.get("rewardToken", "MATIC"))
     token_price = get_price(reward_token) or 0.0
     reward_usd = reward_amount * token_price
-
     gas_cost_usd = compute_gas_cost_usd(gas_gwei, gas_limit)
 
     min_reward_usd = config.get("min_reward_usd", 1.0)
@@ -145,34 +129,38 @@ def decide_to_harvest(watcher: Dict[str, Any], pending_info: Dict[str, Any], gas
     if expected_profit < (gas_cost_usd * (profit_multiplier - 1)):
         return {"should": False, "reason": f"profit_ratio_too_low (exp_profit=${expected_profit:.4f})", "expected_profit_usd": expected_profit, "gas_cost_usd": gas_cost_usd}
 
-    # Passed all checks
     return {"should": True, "reason": "ok", "expected_profit_usd": expected_profit, "gas_cost_usd": gas_cost_usd}
 
 def send_tx_with_retries(w3: Web3, contract, watcher: Dict[str, Any], public_address: str, private_key: str, func_name: str, func_args: tuple, gas_price_gwei: float, gas_limit: int):
     fn_obj = getattr(contract.functions, func_name)
     call_obj = fn_obj(*func_args) if func_args else fn_obj()
+    nonce = w3.eth.get_transaction_count(public_address)
     tx = call_obj.build_transaction({
         "from": public_address,
-        "nonce": w3.eth.get_transaction_count(public_address),
+        "nonce": nonce,
         "gasPrice": int(gas_price_gwei * 1e9),
     })
 
     local_gas_limit = gas_limit
     local_gas_price = gas_price_gwei
+
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             tx["gas"] = local_gas_limit
             tx["gasPrice"] = int(local_gas_price * 1e9)
+            tx["nonce"] = w3.eth.get_transaction_count(public_address)
             signed = w3.eth.account.sign_transaction(tx, private_key)
             tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
+            send_alert(f"✅ {watcher.get('name')} harvested: {tx_hash.hex()}")
             return tx_hash.hex()
         except Exception as e:
             errstr = str(e)
-            if "replacement transaction" in errstr.lower():
+            if "replacement transaction" in errstr.lower() or "nonce" in errstr.lower():
                 local_gas_price *= RETRY_GAS_BUMP_FACTOR
                 local_gas_limit = int(local_gas_limit * 1.05)
                 time.sleep(1 + attempt)
                 continue
+            send_alert(f"❌ {watcher.get('name')} send_tx failed: {e}")
             raise
     raise RuntimeError("Max retries hit while sending tx")
 
@@ -209,7 +197,6 @@ def analyze_and_act(w3: Web3, watcher: Dict[str, Any], public_address: str, priv
         watcher["last_harvest"] = time.time()
         watcher.pop("last_error", None)
         watcher.pop("last_decision", None)
-
         # persist watchers.json
         try:
             with open(WATCHERS_FILE, "r") as f:
@@ -225,9 +212,7 @@ def analyze_and_act(w3: Web3, watcher: Dict[str, Any], public_address: str, priv
             save_watchers_state(watchers)
         except Exception:
             pass
-
         return tx_hash
-
     except Exception as e:
         watcher["last_error"] = f"send_tx_failed: {e}"
         send_alert(f"❌ {watcher.get('name')} send_tx failed: {e}")

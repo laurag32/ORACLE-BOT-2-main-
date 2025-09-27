@@ -1,14 +1,16 @@
 # price_fetcher.py
 import requests
 import logging
+import time
+from threading import Lock
 
 logger = logging.getLogger("PriceFetcher")
+logging.basicConfig(level=logging.INFO)
 
-# Correct CoinGecko IDs
 SYMBOL_MAP = {
     "AUTO": "auto",
     "QUICK": "quick",
-    "MATIC": "matic-network",  # corrected
+    "MATIC": "matic-network",
     "USDC": "usd-coin",
     "DAI": "dai",
     "USDT": "tether",
@@ -18,40 +20,51 @@ SYMBOL_MAP = {
 
 COINGECKO_API = "https://api.coingecko.com/api/v3/simple/price"
 
-# Global cache for prices
 _prices = {sym: 0.0 for sym in SYMBOL_MAP.keys()}
+_last_fetch_time = 0
+_CACHE_DURATION = 30
+_lock = Lock()
+
 
 def fetch_prices(symbols=None):
-    """Fetch current USD prices from CoinGecko."""
-    global _prices
+    global _prices, _last_fetch_time
     symbols = symbols or SYMBOL_MAP.keys()
-    ids = ",".join([SYMBOL_MAP[sym] for sym in symbols if sym in SYMBOL_MAP])
-    params = {"ids": ids, "vs_currencies": "usd"}
 
-    try:
-        response = requests.get(COINGECKO_API, params=params, timeout=10)
-        data = response.json()
-        for sym in symbols:
-            cg_id = SYMBOL_MAP.get(sym)
-            if cg_id and cg_id in data:
-                _prices[sym] = float(data[cg_id]["usd"])
-            else:
-                logger.warning(f"[PriceFetcher] Failed to fetch {sym}: '{cg_id}'")
-        return _prices
-    except requests.RequestException as e:
-        logger.error(f"[PriceFetcher] Price fetch failed: {e}")
-        return {sym: 0.0 for sym in symbols}
+    with _lock:
+        now = time.time()
+        if now - _last_fetch_time < _CACHE_DURATION:
+            return {sym: _prices.get(sym, 0.0) for sym in symbols}
+
+        ids = ",".join([SYMBOL_MAP[sym] for sym in symbols if sym in SYMBOL_MAP])
+        params = {"ids": ids, "vs_currencies": "usd"}
+
+        for attempt in range(3):
+            try:
+                response = requests.get(COINGECKO_API, params=params, timeout=10)
+                data = response.json()
+                for sym in symbols:
+                    cg_id = SYMBOL_MAP.get(sym)
+                    if cg_id and cg_id in data and "usd" in data[cg_id]:
+                        _prices[sym] = float(data[cg_id]["usd"])
+                    else:
+                        logger.warning(f"[PriceFetcher] Failed to fetch {sym}: '{cg_id}'")
+                _last_fetch_time = time.time()
+                return {sym: _prices.get(sym, 0.0) for sym in symbols}
+            except requests.RequestException as e:
+                logger.warning(f"[PriceFetcher] Fetch attempt {attempt+1} failed: {e}")
+                time.sleep(1 + attempt)
+
+        logger.error("[PriceFetcher] All fetch attempts failed, returning cached prices or 0.0")
+        return {sym: _prices.get(sym, 0.0) for sym in symbols}
+
 
 def get_price(symbol):
-    """Return last fetched price (USD) for a symbol. Fetches if missing."""
-    if _prices.get(symbol, 0.0) == 0.0:
-        fetch_prices([symbol])
-    return _prices.get(symbol, 0.0)
+    prices = fetch_prices([symbol])
+    return prices.get(symbol, 0.0)
 
-# Optional: continuously update prices if run directly
+
 if __name__ == "__main__":
-    import time
     while True:
         prices = fetch_prices()
         logger.info(f"[PriceFetcher] Current Prices: {prices}")
-        time.sleep(30)  # fetch every 30 seconds
+        time.sleep(_CACHE_DURATION)

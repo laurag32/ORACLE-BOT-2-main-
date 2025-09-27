@@ -5,10 +5,9 @@ import time
 import threading
 from flask import Flask
 from dotenv import load_dotenv
-
 from rpc_manager import get_web3
 from telegram_notifier import send_alert
-from ai_agent import analyze_and_act
+from ai_agent import analyze_and_act, save_watchers_state
 
 # Load .env locally (Render uses environment variables directly)
 load_dotenv()
@@ -48,17 +47,17 @@ if not BOT_ENABLED:
         pass
     exit(0)
 
-# Load watchers
-with open(WATCHERS_FILE, "r") as f:
-    watchers = json.load(f)
+# Load watchers safely
+if os.path.exists(WATCHERS_FILE):
+    with open(WATCHERS_FILE, "r") as f:
+        watchers = json.load(f)
+else:
+    watchers = []
 
 fail_count = 0
 
 def save_watchers():
-    tmp = WATCHERS_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(watchers, f, indent=2)
-    os.replace(tmp, WATCHERS_FILE)
+    save_watchers_state(watchers)
 
 def run_bot():
     global fail_count
@@ -96,7 +95,12 @@ def run_bot():
                         except Exception:
                             pass
                         save_watchers()
-                        fail_count = 0
+                        fail_count = 0  # reset fail count after success
+                    else:
+                        # log skipped harvest
+                        last_decision = watcher.get("last_decision", {})
+                        reason = last_decision.get("reason", "no_action")
+                        print(f"⏸ {name} skipped: {reason}")
 
                 except Exception as e:
                     print(f"❌ Error on {name}: {e}")
@@ -106,9 +110,9 @@ def run_bot():
                         pass
                     fail_count += 1
                     if fail_count >= 2:
-                        print("⏸ Pausing after 2 fails...")
+                        print(f"⏸ Pausing bot for {FAIL_PAUSE_MINS} minutes after {fail_count} consecutive errors...")
                         try:
-                            send_alert(f"Bot paused for {FAIL_PAUSE_MINS} mins after 2 fails.")
+                            send_alert(f"Bot paused for {FAIL_PAUSE_MINS} mins after {fail_count} fails.")
                         except Exception:
                             pass
                         time.sleep(FAIL_PAUSE_MINS * 60)
